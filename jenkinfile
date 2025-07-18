@@ -12,6 +12,8 @@ pipeline {
     parameters {
         string(name: 'NOMBRE', defaultValue: '', description: 'Nombre del microservicio')
         choice(name: 'AMBIENTE', choices: ['dev', 'uat', 'prd', 'drs'], description: 'Ambiente')
+        choice(name: 'ACCION_MICROSERVICIO', choices: ['none', 'get logs', 'get deployment', 'describe pod'], description: 'Acción sobre microservicio')
+        choice(name: 'ACCION_NAMESPACE', choices: ['none', 'get quota', 'get pods'], description: 'Acción sobre namespace')
     }
     stages {
         stage('Checkout Project') {
@@ -59,45 +61,167 @@ pipeline {
         }
 
         stage('Obtener los logs') {
+            when {
+                expression { params.ACCION_MICROSERVICIO == 'get logs' }
+            }
             steps {
                 script {
-                    try {
-                        withEnv(['no_proxy=localhost,10.171.199.0/24,.ocpdomain']) {
-                            wrap([$class: 'MaskPasswordsBuildWrapper',
-                                  varPasswordPairs: [[password: env.tokenOpenshift]]]) {
-                                def fila = readJSON file: "fila_${env.NOMBRE}.json"
-                                def utils = new JenkinsUtils(this)
-                                def server = utils.getServer(env.AMBIENTE, fila.usage)
-                                def token = fila["Token${env.AMBIENTE.capitalize()}"]
-                                def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
+                    def utils = new JenkinsUtils(this)
+                    def server = utils.getServer(env.AMBIENTE, fila.usage)
+                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
 
-                                sh utils.getOcLoginCmd(server, token)
+                    sh utils.getOcLoginCmd(server, token)
 
-                                def podName = sh(script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n 1", returnStdout: true).trim()
-                                echo "Pod encontrado: ${podName}"
+                    def podName = sh(script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n 1", returnStdout: true).trim()
+                    echo "Pod encontrado: ${podName}"
 
-                                echo "Ejecutando logs"
-                                sh "oc logs ${podName} -n ${namespace} > ${podName}.log"
+                    sh "oc logs ${podName} -n ${namespace} > ${podName}.log"
+                    sh "python logs.py ${podName}.log ${params.NOMBRE} ${params.AMBIENTE} logs"
 
-                                echo "Ejecutando script Python"
-                                sh "python logs.py ${podName}.log ${params.AMBIENTE}"
+                    env.logSalida = readFile('reporte.html')
 
-                                env.logSalida = readFile('reporte.html')
-
-                                wrap([$class: 'BuildUser']) {
-                                    emailext(
-                                        to: env.BUILD_USER_EMAIL,
-                                        subject: "Log Openshift ${params.NOMBRE} Environment ${params.AMBIENTE}",
-                                        body: "${env.logSalida}"
-                                    )
-                                }
-
-                                sh utils.getOcLogoutCmd()
-                            }
-                        }
-                    } catch (Exception e) {
-                        echo "Error: ${e}"
+                    wrap([$class: 'BuildUser']) {
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Logs Microservicio ${params.NOMBRE} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
                     }
+
+                    sh utils.getOcLogoutCmd()
+                }
+            }
+        }
+
+        stage('Obtener deployment') {
+            when {
+                expression { params.ACCION_MICROSERVICIO == 'get deployment' }
+            }
+            steps {
+                script {
+                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
+                    def utils = new JenkinsUtils(this)
+                    def server = utils.getServer(env.AMBIENTE, fila.usage)
+                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+
+                    sh utils.getOcLoginCmd(server, token)
+
+                    sh "oc get deployment -n ${namespace} -o yaml > deployment.yaml"
+                    sh "python logs.py deployment.yaml ${params.NOMBRE} ${params.AMBIENTE} deployment"
+
+                    env.logSalida = readFile('reporte.html')
+
+                    wrap([$class: 'BuildUser']) {
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Deployment Microservicio ${params.NOMBRE} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
+                    }
+
+                    sh utils.getOcLogoutCmd()
+                }
+            }
+        }
+
+        stage('Describe pod') {
+            when {
+                expression { params.ACCION_MICROSERVICIO == 'describe pod' }
+            }
+            steps {
+                script {
+                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
+                    def utils = new JenkinsUtils(this)
+                    def server = utils.getServer(env.AMBIENTE, fila.usage)
+                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+
+                    sh utils.getOcLoginCmd(server, token)
+
+                    def podName = sh(script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n 1", returnStdout: true).trim()
+                    echo "Pod encontrado: ${podName}"
+
+                    sh "oc describe pod ${podName} -n ${namespace} > describe.txt"
+                    sh "python logs.py describe.txt ${params.NOMBRE} ${params.AMBIENTE} describe"
+
+                    env.logSalida = readFile('reporte.html')
+
+                    wrap([$class: 'BuildUser']) {
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Describe Pod - ${params.NOMBRE} (${params.AMBIENTE})",
+                            body: "${env.logSalida}"
+                        )
+                    }
+
+                    sh utils.getOcLogoutCmd()
+                }
+            }
+        }
+
+        stage('Obtener quota') {
+            when {
+                expression { params.ACCION_NAMESPACE == 'get quota' }
+            }
+            steps {
+                script {
+                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
+                    def utils = new JenkinsUtils(this)
+                    def server = utils.getServer(env.AMBIENTE, fila.usage)
+                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+
+                    sh utils.getOcLoginCmd(server, token)
+
+                    sh "oc get resourcequota -n ${namespace} -o yaml > quota.yaml"
+                    sh "python logs.py quota.yaml ${params.NOMBRE} ${params.AMBIENTE} quota"
+
+                    env.logSalida = readFile('reporte.html')
+
+                    wrap([$class: 'BuildUser']) {
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Quota Namespace ${namespace} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
+                    }
+
+                    sh utils.getOcLogoutCmd()
+                }
+            }
+        }
+
+        stage('Obtener pods') {
+            when {
+                expression { params.ACCION_NAMESPACE == 'get pods' }
+            }
+            steps {
+                script {
+                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
+                    def utils = new JenkinsUtils(this)
+                    def server = utils.getServer(env.AMBIENTE, fila.usage)
+                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+
+                    sh utils.getOcLoginCmd(server, token)
+
+                    sh "oc get pods -n ${namespace} -o wide > pods.txt"
+                    sh "python logs.py pods.txt ${params.NOMBRE} ${params.AMBIENTE} pods"
+
+                    env.logSalida = readFile('reporte.html')
+
+                    wrap([$class: 'BuildUser']) {
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Pods Namespace ${namespace} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
+                    }
+
+                    sh utils.getOcLogoutCmd()
                 }
             }
         }
