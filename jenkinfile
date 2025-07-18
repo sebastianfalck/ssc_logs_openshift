@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+    environment {
+        REPO_URL = ''
+        REPO_CREDENTIALS = 'github-credentials'
+        NOMBRE = "${params.NOMBRE}"
+        AMBIENTE = "${params.AMBIENTE}"
+        SERVER_INTERNAL = 'https://internal.openshift.example:6443'
+        SERVER_EXTERNAL = 'https://external.openshift.example:6443'
+        SERVER_DRS = 'https://drs.openshift.example:6443'
+    }
+    parameters {
+        string(name: 'NOMBRE', defaultValue: '', description: 'Nombre del microservicio')
+        choice(name: 'AMBIENTE', choices: ['dev', 'uat', 'prd', 'drs'], description: 'Ambiente')
+    }
+    stages {
+        stage('Checkout Project') {
+            steps {
+                dir('project') {
+                    git branch: 'main', url: env.REPO_URL, credentialsId: env.REPO_CREDENTIALS
+                }
+            }
+        }
+
+        stage('Leer configuración CSV') {
+            steps {
+                script {
+                    def configLines = readFile('project/ProjectsJenkinsCardifCSV.csv').readLines().findAll { it.trim() }
+                    def headers = configLines[0].split(';').collect { it.trim() }
+                    def fila = configLines.drop(1).collect { line ->
+                        def valores = line.split(';')
+                        def filaMap = [:]
+                        headers.eachWithIndex { key, idx ->
+                            filaMap[key] = (valores.size() > idx ? valores[idx] : '').trim()
+                        }
+                        filaMap
+                    }.find { it['appName'] == env.NOMBRE }
+                    writeFile file: "fila_${env.NOMBRE}.json", text: groovy.json.JsonOutput.toJson(fila)
+                }
+            }
+        }
+
+        stage('Confirmación de país') {
+            steps {
+                script {
+                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
+                    def paisMicro = fila.country?.toLowerCase()
+                    def partes = env.WORKSPACE.split(/[\\\\/]+/)
+                    if (partes.size() < 2) {
+                        error "Ruta demasiado corta: ${env.WORKSPACE}"
+                    }
+                    def paisRuta = partes[-2].toLowerCase()
+                    echo "Pais desde ruta: ${paisRuta}, Pais desde CSV: ${paisMicro}"
+                    if (paisMicro != paisRuta) {
+                        error "El microservicio no pertenece a tu país: ${paisMicro} vs ${paisRuta}"
+                    }
+                }
+            }
+        }
+
+        stage('Obtener los logs') {
+            steps {
+                script {
+                    try {
+                        withEnv(['no_proxy=localhost,10.171.199.0/24,.ocpdomain']) {
+                            wrap([$class: 'MaskPasswordsBuildWrapper',
+                                  varPasswordPairs: [[password: env.tokenOpenshift]]]) {
+                                def fila = readJSON file: "fila_${env.NOMBRE}.json"
+                                def utils = new JenkinsUtils(this)
+                                def server = utils.getServer(env.AMBIENTE, fila.usage)
+                                def token = fila["Token${env.AMBIENTE.capitalize()}"]
+                                def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+
+                                sh utils.getOcLoginCmd(server, token)
+
+                                def podName = sh(script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n 1", returnStdout: true).trim()
+                                echo "Pod encontrado: ${podName}"
+
+                                echo "Ejecutando logs"
+                                sh "oc logs ${podName} -n ${namespace} > ${podName}.log"
+
+                                echo "Ejecutando script Python"
+                                sh "python logs.py ${podName}.log ${params.AMBIENTE}"
+
+                                env.logSalida = readFile('reporte.html')
+
+                                wrap([$class: 'BuildUser']) {
+                                    emailext(
+                                        to: env.BUILD_USER_EMAIL,
+                                        subject: "Log Openshift ${params.NOMBRE} Environment ${params.AMBIENTE}",
+                                        body: "${env.logSalida}"
+                                    )
+                                }
+
+                                sh utils.getOcLogoutCmd()
+                            }
+                        }
+                    } catch (Exception e) {
+                        echo "Error: ${e}"
+                    }
+                }
+            }
+        }
+    }
+}
