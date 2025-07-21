@@ -1,25 +1,38 @@
 pipeline {
     agent any
+
     environment {
-        REPO_URL = ''
+        REPO_URL         = ''
         REPO_CREDENTIALS = 'github-credentials'
-        NOMBRE = "${params.NOMBRE}"
-        AMBIENTE = "${params.AMBIENTE}"
-        SERVER_INTERNAL = 'https://internal.openshift.example:6443'
-        SERVER_EXTERNAL = 'https://external.openshift.example:6443'
-        SERVER_DRS = 'https://drs.openshift.example:6443'
+        SERVER_INTERNAL  = 'https://internal.openshift.example:6443'
+        SERVER_EXTERNAL  = 'https://external.openshift.example:6443'
+        SERVER_DRS       = 'https://drs.openshift.example:6443'
     }
+
     parameters {
         string(name: 'NOMBRE', defaultValue: '', description: 'Nombre del microservicio')
-        choice(name: 'AMBIENTE', choices: ['dev', 'uat', 'prd', 'drs'], description: 'Ambiente')
-        choice(name: 'ACCION_MICROSERVICIO', choices: ['none', 'get logs', 'get deployment', 'describe pod'], description: 'Acción sobre microservicio')
-        choice(name: 'ACCION_NAMESPACE', choices: ['none', 'get quota', 'get pods'], description: 'Acción sobre namespace')
+        choice(name: 'AMBIENTE', choices: ['dev','uat','prd','drs'], description: 'Ambiente')
+        choice(
+            name: 'ACCION',
+            choices: [
+                'none',
+                'get logs',
+                'get deployment',
+                'describe pod',
+                'get quota',
+                'get pods'
+            ],
+            description: 'Comando a ejecutar'
+        )
     }
+
     stages {
         stage('Checkout Project') {
             steps {
                 dir('project') {
-                    git branch: 'main', url: env.REPO_URL, credentialsId: env.REPO_CREDENTIALS
+                    git branch: 'main',
+                        url: env.REPO_URL,
+                        credentialsId: env.REPO_CREDENTIALS
                 }
             }
         }
@@ -27,17 +40,22 @@ pipeline {
         stage('Leer configuración CSV') {
             steps {
                 script {
-                    def configLines = readFile('project/ProjectsJenkinsCardifCSV.csv').readLines().findAll { it.trim() }
-                    def headers = configLines[0].split(';').collect { it.trim() }
-                    def fila = configLines.drop(1).collect { line ->
-                        def valores = line.split(';')
-                        def filaMap = [:]
-                        headers.eachWithIndex { key, idx ->
-                            filaMap[key] = (valores.size() > idx ? valores[idx] : '').trim()
+                    def lines  = readFile('project/ProjectsJenkinsCardifCSV.csv')
+                                   .readLines()
+                                   .findAll { it.trim() }
+                    def headers = lines[0].split(';').collect { it.trim() }
+                    def fila = lines.drop(1)
+                        .collect { l ->
+                            def vals = l.split(';')
+                            def map  = [:]
+                            headers.eachWithIndex { h,i ->
+                                map[h] = (vals.size()>i ? vals[i] : '').trim()
+                            }
+                            map
                         }
-                        filaMap
-                    }.find { it['appName'] == env.NOMBRE }
-                    writeFile file: "fila_${env.NOMBRE}.json", text: groovy.json.JsonOutput.toJson(fila)
+                        .find { it['appName']==params.NOMBRE }
+                    writeFile file: "fila_${params.NOMBRE}.json",
+                              text: groovy.json.JsonOutput.toJson(fila)
                 }
             }
         }
@@ -45,47 +63,44 @@ pipeline {
         stage('Confirmación de país') {
             steps {
                 script {
-                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
-                    def paisMicro = fila.country?.toLowerCase()
-                    def partes = env.WORKSPACE.split(/[\\\\/]+/)
-                    if (partes.size() < 2) {
-                        error "Ruta demasiado corta: ${env.WORKSPACE}"
-                    }
+                    def fila     = readJSON file: "fila_${params.NOMBRE}.json"
+                    def paisCsv  = fila.country?.toLowerCase()
+                    def partes   = env.WORKSPACE.split(/[\\/]+/)
+                    if (partes.size()<2) error "Ruta demasiado corta: ${env.WORKSPACE}"
                     def paisRuta = partes[-2].toLowerCase()
-                    echo "Pais desde ruta: ${paisRuta}, Pais desde CSV: ${paisMicro}"
-                    if (paisMicro != paisRuta) {
-                        error "El microservicio no pertenece a tu país: ${paisMicro} vs ${paisRuta}"
+                    echo "País ruta: ${paisRuta}, país CSV: ${paisCsv}"
+                    if (paisCsv != paisRuta) {
+                        error "El microservicio no pertenece a tu país: ${paisCsv} vs ${paisRuta}"
                     }
                 }
             }
         }
 
-        stage('Obtener los logs') {
-            when {
-                expression { params.ACCION_MICROSERVICIO == 'get logs' }
-            }
+        stage('get logs') {
+            when { expression { params.ACCION == 'get logs' } }
             steps {
                 script {
-                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
-                    def utils = new JenkinsUtils(this)
-                    def server = utils.getServer(env.AMBIENTE, fila.usage)
-                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
-                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     sh utils.getOcLoginCmd(server, token)
 
-                    def podName = sh(script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n 1", returnStdout: true).trim()
-                    echo "Pod encontrado: ${podName}"
+                    def pod = sh(
+                        script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n1",
+                        returnStdout: true
+                    ).trim()
 
-                    sh "oc logs ${podName} -n ${namespace} > ${podName}.log"
-                    sh "python logs.py ${podName}.log ${params.NOMBRE} ${params.AMBIENTE} logs"
+                    sh "oc logs ${pod} -n ${namespace} > ${pod}.log"
+                    sh "python logs.py ${pod}.log ${params.NOMBRE} ${params.AMBIENTE} logs"
 
                     env.logSalida = readFile('reporte.html')
-
-                    wrap([$class: 'BuildUser']) {
+                    wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "Logs Microservicio ${params.NOMBRE} - ${params.AMBIENTE}",
+                            subject: "Logs ${params.NOMBRE} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
@@ -95,29 +110,31 @@ pipeline {
             }
         }
 
-        stage('Obtener deployment') {
-            when {
-                expression { params.ACCION_MICROSERVICIO == 'get deployment' }
-            }
+        stage('get deployment') {
+            when { expression { params.ACCION == 'get deployment' } }
             steps {
                 script {
-                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
-                    def utils = new JenkinsUtils(this)
-                    def server = utils.getServer(env.AMBIENTE, fila.usage)
-                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
-                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     sh utils.getOcLoginCmd(server, token)
 
-                    sh "oc get deployment -n ${namespace} -o yaml > deployment.yaml"
+                    def deploy = sh(
+                        script: "oc get deployment -n ${namespace} | grep '${params.NOMBRE}' | awk '{print \$1}'",
+                        returnStdout: true
+                    ).trim()
+
+                    sh "oc get deployment ${deploy} -n ${namespace} -o yaml > deployment.yaml"
                     sh "python logs.py deployment.yaml ${params.NOMBRE} ${params.AMBIENTE} deployment"
 
                     env.logSalida = readFile('reporte.html')
-
-                    wrap([$class: 'BuildUser']) {
+                    wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "Deployment Microservicio ${params.NOMBRE} - ${params.AMBIENTE}",
+                            subject: "Deployment ${params.NOMBRE} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
@@ -127,32 +144,31 @@ pipeline {
             }
         }
 
-        stage('Describe pod') {
-            when {
-                expression { params.ACCION_MICROSERVICIO == 'describe pod' }
-            }
+        stage('describe pod') {
+            when { expression { params.ACCION == 'describe pod' } }
             steps {
                 script {
-                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
-                    def utils = new JenkinsUtils(this)
-                    def server = utils.getServer(env.AMBIENTE, fila.usage)
-                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
-                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     sh utils.getOcLoginCmd(server, token)
 
-                    def podName = sh(script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n 1", returnStdout: true).trim()
-                    echo "Pod encontrado: ${podName}"
+                    def pod = sh(
+                        script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n1",
+                        returnStdout: true
+                    ).trim()
 
-                    sh "oc describe pod ${podName} -n ${namespace} > describe.txt"
+                    sh "oc describe pod ${pod} -n ${namespace} > describe.txt"
                     sh "python logs.py describe.txt ${params.NOMBRE} ${params.AMBIENTE} describe"
 
                     env.logSalida = readFile('reporte.html')
-
-                    wrap([$class: 'BuildUser']) {
+                    wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "Describe Pod - ${params.NOMBRE} (${params.AMBIENTE})",
+                            subject: "Describe Pod ${params.NOMBRE} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
@@ -162,17 +178,15 @@ pipeline {
             }
         }
 
-        stage('Obtener quota') {
-            when {
-                expression { params.ACCION_NAMESPACE == 'get quota' }
-            }
+        stage('get quota') {
+            when { expression { params.ACCION == 'get quota' } }
             steps {
                 script {
-                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
-                    def utils = new JenkinsUtils(this)
-                    def server = utils.getServer(env.AMBIENTE, fila.usage)
-                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
-                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     sh utils.getOcLoginCmd(server, token)
 
@@ -180,11 +194,10 @@ pipeline {
                     sh "python logs.py quota.yaml ${params.NOMBRE} ${params.AMBIENTE} quota"
 
                     env.logSalida = readFile('reporte.html')
-
-                    wrap([$class: 'BuildUser']) {
+                    wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "Quota Namespace ${namespace} - ${params.AMBIENTE}",
+                            subject: "Quota ${namespace} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
@@ -194,17 +207,15 @@ pipeline {
             }
         }
 
-        stage('Obtener pods') {
-            when {
-                expression { params.ACCION_NAMESPACE == 'get pods' }
-            }
+        stage('get pods') {
+            when { expression { params.ACCION == 'get pods' } }
             steps {
                 script {
-                    def fila = readJSON file: "fila_${env.NOMBRE}.json"
-                    def utils = new JenkinsUtils(this)
-                    def server = utils.getServer(env.AMBIENTE, fila.usage)
-                    def token = fila["Token${env.AMBIENTE.capitalize()}"]
-                    def namespace = fila["NameSpace${env.AMBIENTE.capitalize()}"]
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
+                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     sh utils.getOcLoginCmd(server, token)
 
@@ -212,11 +223,10 @@ pipeline {
                     sh "python logs.py pods.txt ${params.NOMBRE} ${params.AMBIENTE} pods"
 
                     env.logSalida = readFile('reporte.html')
-
-                    wrap([$class: 'BuildUser']) {
+                    wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "Pods Namespace ${namespace} - ${params.AMBIENTE}",
+                            subject: "Pods ${namespace} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
@@ -225,5 +235,29 @@ pipeline {
                 }
             }
         }
+    }
+}
+
+class JenkinsUtils {
+    def steps
+    JenkinsUtils(steps) { this.steps = steps }
+
+    def getServer(ambiente, tipoAcceso) {
+        def serverMap = [
+            'drs'     : { -> steps.env.SERVER_DRS },
+            'internal': { -> steps.env.SERVER_INTERNAL },
+            'external': { -> steps.env.SERVER_EXTERNAL }
+        ]
+        if (ambiente?.toLowerCase() == 'drs') return serverMap['drs']()
+        def key = tipoAcceso?.toLowerCase()
+        return serverMap.get(key, serverMap['internal'])()
+    }
+
+    def getOcLoginCmd(server, token) {
+        return "oc login --insecure-skip-tls-verify --server=${server} --token=${token}"
+    }
+
+    def getOcLogoutCmd() {
+        return "oc logout"
     }
 }
