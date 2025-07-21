@@ -73,23 +73,13 @@ pipeline {
                     def utils     = new JenkinsUtils(this)
                     def server    = utils.getServer(params.AMBIENTE, fila.usage)
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
-
-                    echo "DEBUG – token CSV: ${token}"
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
+                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-
-                        def pod = sh(
-                            script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n1",
-                            returnStdout: true
-                        ).trim()
+                        def pod = utils.getPodName(namespace, params.NOMBRE)
                         echo "Pod: ${pod}"
-
-                        sh "oc logs ${pod} -n ${namespace} > ${pod}.log"
-                        sh "python logs.py ${pod}.log ${params.NOMBRE} ${params.AMBIENTE} logs"
+                        utils.getLogs(pod, namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -113,23 +103,13 @@ pipeline {
                     def utils     = new JenkinsUtils(this)
                     def server    = utils.getServer(params.AMBIENTE, fila.usage)
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
-
-                    echo "DEBUG – token CSV: ${token}"
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
+                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-
-                        def deploy = sh(
-                            script: "oc get deployment -n ${namespace} | grep '${params.NOMBRE}' | awk '{print \$1}'",
-                            returnStdout: true
-                        ).trim()
-                        echo "Deployment: ${deploy}"
-
-                        sh "oc get deployment ${deploy} -n ${namespace} -o yaml > deployment.yaml"
-                        sh "python logs.py deployment.yaml ${params.NOMBRE} ${params.AMBIENTE} deployment"
+                        def deployment = utils.getDeploymentName(namespace, params.NOMBRE)
+                        echo "Deployment: ${deployment}"
+                        utils.getDeploymentYaml(deployment, namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -153,23 +133,13 @@ pipeline {
                     def utils     = new JenkinsUtils(this)
                     def server    = utils.getServer(params.AMBIENTE, fila.usage)
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
-
-                    echo "DEBUG – token CSV: ${token}"
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
+                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-
-                        def pod = sh(
-                            script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n1",
-                            returnStdout: true
-                        ).trim()
+                        def pod = utils.getPodName(namespace, params.NOMBRE)
                         echo "Pod: ${pod}"
-
-                        sh "oc describe pod ${pod} -n ${namespace} > describe.txt"
-                        sh "python logs.py describe.txt ${params.NOMBRE} ${params.AMBIENTE} describe"
+                        utils.getDescribePod(pod, namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -193,17 +163,11 @@ pipeline {
                     def utils     = new JenkinsUtils(this)
                     def server    = utils.getServer(params.AMBIENTE, fila.usage)
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
-
-                    echo "DEBUG – token CSV: ${token}"
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
+                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-
-                        sh "oc get resourcequota -n ${namespace} -o yaml > quota.yaml"
-                        sh "python logs.py quota.yaml ${params.NOMBRE} ${params.AMBIENTE} quota"
+                        utils.getQuota(namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -227,17 +191,11 @@ pipeline {
                     def utils     = new JenkinsUtils(this)
                     def server    = utils.getServer(params.AMBIENTE, fila.usage)
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-                    def token     = fila["Token${params.AMBIENTE.capitalize()}"]
-
-                    echo "DEBUG – token CSV: ${token}"
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
+                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-
-                        sh "oc get pods -n ${namespace} -o wide > pods.txt"
-                        sh "python logs.py pods.txt ${params.NOMBRE} ${params.AMBIENTE} pods"
+                        utils.getPods(namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -254,6 +212,8 @@ pipeline {
         }
     }
 }
+
+// ======= JenkinsUtils.groovy helper =========
 
 class JenkinsUtils {
     def steps
@@ -278,5 +238,42 @@ class JenkinsUtils {
         return "oc logout"
     }
 
-    // ... demás métodos de JenkinsUtils si los necesitas ...
+    def getPodName(namespace, nombre) {
+        return steps.sh(
+            script: "oc get pod -n ${namespace} | grep '${nombre}-.*' | awk '{print \$1}' | head -n1",
+            returnStdout: true
+        ).trim()
+    }
+
+    def getLogs(pod, namespace, nombre, ambiente) {
+        steps.sh "oc logs ${pod} -n ${namespace} > ${pod}.log"
+        steps.sh "python logs.py ${pod}.log ${nombre} ${ambiente} logs"
+    }
+
+    def getDeploymentName(namespace, nombre) {
+        return steps.sh(
+            script: "oc get deployment -n ${namespace} | grep '${nombre}' | awk '{print \$1}'",
+            returnStdout: true
+        ).trim()
+    }
+
+    def getDeploymentYaml(deployment, namespace, nombre, ambiente) {
+        steps.sh "oc get deployment ${deployment} -n ${namespace} -o yaml > deployment.yaml"
+        steps.sh "python logs.py deployment.yaml ${nombre} ${ambiente} deployment"
+    }
+
+    def getDescribePod(pod, namespace, nombre, ambiente) {
+        steps.sh "oc describe pod ${pod} -n ${namespace} > describe.txt"
+        steps.sh "python logs.py describe.txt ${nombre} ${ambiente} describe"
+    }
+
+    def getQuota(namespace, nombre, ambiente) {
+        steps.sh "oc get resourcequota -n ${namespace} -o yaml > quota.yaml"
+        steps.sh "python logs.py quota.yaml ${nombre} ${ambiente} quota"
+    }
+
+    def getPods(namespace, nombre, ambiente) {
+        steps.sh "oc get pods -n ${namespace} -o wide > pods.txt"
+        steps.sh "python logs.py pods.txt ${nombre} ${ambiente} pods"
+    }
 }
