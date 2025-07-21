@@ -1,6 +1,3 @@
-Aquí tienes el `Jenkinsfile` completo actualizado para enmascarar el token de OpenShift en cada stage, usando `MaskPasswordsBuildWrapper`. He envuelto el login/logout y los comandos sensibles dentro del `wrap` correspondiente:
-
-```groovy
 pipeline {
     agent any
 
@@ -13,20 +10,11 @@ pipeline {
     }
 
     parameters {
-        string(name: 'NOMBRE', defaultValue: '', description: 'Nombre del microservicio')
-        choice(name: 'AMBIENTE', choices: ['dev','uat','prd','drs'], description: 'Ambiente')
-        choice(
-            name: 'ACCION',
-            choices: [
-                'none',
-                'get logs',
-                'get deployment',
-                'describe pod',
-                'get quota',
-                'get pods'
-            ],
-            description: 'Comando a ejecutar'
-        )
+        string(name: 'NOMBRE',    defaultValue: '',                   description: 'Nombre del microservicio')
+        choice(name: 'AMBIENTE',  choices: ['dev','uat','prd','drs'], description: 'Ambiente')
+        choice(name: 'ACCION',
+               choices: ['none','get logs','get deployment','describe pod','get quota','get pods'],
+               description: 'Comando a ejecutar')
     }
 
     stages {
@@ -50,13 +38,11 @@ pipeline {
                     def fila = lines.drop(1)
                         .collect { l ->
                             def vals = l.split(';')
-                            def map  = [:]
-                            headers.eachWithIndex { h,i ->
-                                map[h] = (vals.size()>i ? vals[i] : '').trim()
-                            }
-                            map
+                            def m    = [:]
+                            headers.eachWithIndex { h,i -> m[h] = (vals.size()>i?vals[i]:'').trim() }
+                            m
                         }
-                        .find { it['appName']==params.NOMBRE }
+                        .find { it.appName == params.NOMBRE }
                     writeFile file: "fila_${params.NOMBRE}.json",
                               text: groovy.json.JsonOutput.toJson(fila)
                 }
@@ -66,9 +52,9 @@ pipeline {
         stage('Confirmación de país') {
             steps {
                 script {
-                    def fila     = readJSON file: "fila_${params.NOMBRE}.json"
-                    def paisCsv  = fila.country?.toLowerCase()
-                    def partes   = env.WORKSPACE.split(/[\\/]+/)
+                    def fila    = readJSON file: "fila_${params.NOMBRE}.json"
+                    def paisCsv = fila.country?.toLowerCase()
+                    def partes  = env.WORKSPACE.split(/[\\/]+/)
                     if (partes.size()<2) error "Ruta demasiado corta: ${env.WORKSPACE}"
                     def paisRuta = partes[-2].toLowerCase()
                     echo "País ruta: ${paisRuta}, país CSV: ${paisCsv}"
@@ -78,8 +64,6 @@ pipeline {
                 }
             }
         }
-
-        // === MICRO-SERVICIO ===
 
         stage('get logs') {
             when { expression { params.ACCION == 'get logs' } }
@@ -91,27 +75,31 @@ pipeline {
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
                     def token     = fila["Token${params.AMBIENTE.capitalize()}"]
 
+                    echo "DEBUG – token CSV: ${token}"
+
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-
+                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
                         sh utils.getOcLoginCmd(server, env.TOKEN)
 
                         def pod = sh(
                             script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n1",
                             returnStdout: true
                         ).trim()
+                        echo "Pod: ${pod}"
 
                         sh "oc logs ${pod} -n ${namespace} > ${pod}.log"
                         sh "python logs.py ${pod}.log ${params.NOMBRE} ${params.AMBIENTE} logs"
-
                         sh utils.getOcLogoutCmd()
                     }
 
                     env.logSalida = readFile('reporte.html')
                     wrap([$class:'BuildUser']) {
-                        emailext to: env.BUILD_USER_EMAIL,
-                                 subject: "Logs ${params.NOMBRE} - ${params.AMBIENTE}",
-                                 body: "${env.logSalida}"
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Logs ${params.NOMBRE} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
                     }
                 }
             }
@@ -127,27 +115,31 @@ pipeline {
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
                     def token     = fila["Token${params.AMBIENTE.capitalize()}"]
 
+                    echo "DEBUG – token CSV: ${token}"
+
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-
+                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
                         sh utils.getOcLoginCmd(server, env.TOKEN)
 
                         def deploy = sh(
                             script: "oc get deployment -n ${namespace} | grep '${params.NOMBRE}' | awk '{print \$1}'",
                             returnStdout: true
                         ).trim()
+                        echo "Deployment: ${deploy}"
 
                         sh "oc get deployment ${deploy} -n ${namespace} -o yaml > deployment.yaml"
                         sh "python logs.py deployment.yaml ${params.NOMBRE} ${params.AMBIENTE} deployment"
-
                         sh utils.getOcLogoutCmd()
                     }
 
                     env.logSalida = readFile('reporte.html')
                     wrap([$class:'BuildUser']) {
-                        emailext to: env.BUILD_USER_EMAIL,
-                                 subject: "Deployment ${params.NOMBRE} - ${params.AMBIENTE}",
-                                 body: "${env.logSalida}"
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Deployment ${params.NOMBRE} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
                     }
                 }
             }
@@ -163,33 +155,35 @@ pipeline {
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
                     def token     = fila["Token${params.AMBIENTE.capitalize()}"]
 
+                    echo "DEBUG – token CSV: ${token}"
+
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-
+                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
                         sh utils.getOcLoginCmd(server, env.TOKEN)
 
                         def pod = sh(
                             script: "oc get pod -n ${namespace} | grep '${params.NOMBRE}-.*' | awk '{print \$1}' | head -n1",
                             returnStdout: true
                         ).trim()
+                        echo "Pod: ${pod}"
 
                         sh "oc describe pod ${pod} -n ${namespace} > describe.txt"
                         sh "python logs.py describe.txt ${params.NOMBRE} ${params.AMBIENTE} describe"
-
                         sh utils.getOcLogoutCmd()
                     }
 
                     env.logSalida = readFile('reporte.html')
                     wrap([$class:'BuildUser']) {
-                        emailext to: env.BUILD_USER_EMAIL,
-                                 subject: "Describe Pod ${params.NOMBRE} - ${params.AMBIENTE}",
-                                 body: "${env.logSalida}"
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Describe Pod ${params.NOMBRE} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
                     }
                 }
             }
         }
-
-        // === NAMESPACE ===
 
         stage('get quota') {
             when { expression { params.ACCION == 'get quota' } }
@@ -201,10 +195,13 @@ pipeline {
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
                     def token     = fila["Token${params.AMBIENTE.capitalize()}"]
 
+                    echo "DEBUG – token CSV: ${token}"
+
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-
+                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
                         sh utils.getOcLoginCmd(server, env.TOKEN)
+
                         sh "oc get resourcequota -n ${namespace} -o yaml > quota.yaml"
                         sh "python logs.py quota.yaml ${params.NOMBRE} ${params.AMBIENTE} quota"
                         sh utils.getOcLogoutCmd()
@@ -212,9 +209,11 @@ pipeline {
 
                     env.logSalida = readFile('reporte.html')
                     wrap([$class:'BuildUser']) {
-                        emailext to: env.BUILD_USER_EMAIL,
-                                 subject: "Quota ${namespace} - ${params.AMBIENTE}",
-                                 body: "${env.logSalida}"
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Quota ${namespace} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
                     }
                 }
             }
@@ -230,10 +229,13 @@ pipeline {
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
                     def token     = fila["Token${params.AMBIENTE.capitalize()}"]
 
+                    echo "DEBUG – token CSV: ${token}"
+
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: token]]]) {
-
+                        sh 'echo "DEBUG – $TOKEN (env) = [$TOKEN]"'
                         sh utils.getOcLoginCmd(server, env.TOKEN)
+
                         sh "oc get pods -n ${namespace} -o wide > pods.txt"
                         sh "python logs.py pods.txt ${params.NOMBRE} ${params.AMBIENTE} pods"
                         sh utils.getOcLogoutCmd()
@@ -241,9 +243,11 @@ pipeline {
 
                     env.logSalida = readFile('reporte.html')
                     wrap([$class:'BuildUser']) {
-                        emailext to: env.BUILD_USER_EMAIL,
-                                 subject: "Pods ${namespace} - ${params.AMBIENTE}",
-                                 body: "${env.logSalida}"
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "Pods ${namespace} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
                     }
                 }
             }
@@ -266,13 +270,13 @@ class JenkinsUtils {
         return serverMap.get(key, serverMap['internal'])()
     }
 
-    def getOcLoginCmd(server, tokenVar) {
-        // tokenVar debe ser la variable de entorno que contiene el token
-        return "oc login --insecure-skip-tls-verify --server=${server} --token=${tokenVar}"
+    def getOcLoginCmd(server, token) {
+        return "oc login --insecure-skip-tls-verify --server=${server} --token=${token}"
     }
 
     def getOcLogoutCmd() {
         return "oc logout"
     }
+
+    // ... demás métodos de JenkinsUtils si los necesitas ...
 }
-```
