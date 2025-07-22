@@ -271,7 +271,7 @@ class JenkinsUtils {
 
     def getDeploymentName(namespace, nombre) {
         return steps.sh(
-            script: "oc get deployment -n ${namespace} | grep '${nombre}' | awk '{print \$1}'",
+            script: "oc get deployment -n ${namespace} | grep '${nombre}' | awk '{print \$1}' | head -n1",
             returnStdout: true
         ).trim()
     }
