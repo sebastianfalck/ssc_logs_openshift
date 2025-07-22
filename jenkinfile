@@ -65,6 +65,25 @@ pipeline {
             }
         }
 
+        stage('Test OC Login') {
+            steps {
+                script {
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+
+                    wrap([$class: 'MaskPasswordsBuildWrapper',
+                        varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
+                        echo "Probando login con servidor: ${server}"
+                        sh utils.getOcLoginCmd(server, env.TOKEN)
+                        sh "oc whoami"
+                        sh utils.getOcLogoutCmd()
+                    }
+                }
+            }
+        }
+
+
         stage('get logs') {
             when { expression { params.ACCION == 'get logs' } }
             steps {
