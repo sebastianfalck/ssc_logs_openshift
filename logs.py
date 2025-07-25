@@ -1,72 +1,141 @@
 import sys
-import re
 
-def log_to_html(input_path, html_path, microservice, ambiente, tipo):
-    with open(input_path, 'r') as f:
-        lines = f.readlines()
+def log_to_html(log_path, html_path, tipo):
+    with open(log_path, 'r') as log_file:
+        lines = log_file.readlines()
 
-    with open(html_path, 'w') as html:
-        html.write(f"""<!DOCTYPE html>
-<html lang=\"es\">\n<head>\n    <meta charset=\"UTF-8\">\n    <title>Reporte de {tipo.upper()} - {microservice}</title>\n    <style>\n        body {{ font-family: 'Segoe UI', sans-serif; background-color: #f4f4f4; padding: 30px; color: #333; }}\n        .card {{ background: #ffffff; border-radius: 10px; padding: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}\n        h1 {{ background-color: #00a79d; color: white; padding: 15px; border-radius: 8px 8px 0 0; margin-top: 0; text-align: center; }}\n        .section-title {{ font-size: 1.2em; margin: 20px 0 10px; color: #00a79d; border-bottom: 2px solid #00a79d; padding-bottom: 5px; }}\n        .error {{ color: #cc0000; font-weight: bold; }}\n        .warning {{ color: #ff8800; }}\n        .info {{ color: #006699; }}\n        .normal {{ color: #333; }}\n        .line {{ white-space: pre-wrap; margin: 2px 0; }}\n        table.pods-table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}\n        table.pods-table th, table.pods-table td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}\n        table.pods-table th {{ background-color: #00a79d; color: white; }}\n        table.kv-table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}\n        table.kv-table th, table.kv-table td {{ border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }}\n        table.kv-table th {{ background-color: #00a79d; color: white; }}\n        .no-value {{ background-color: #f9f9f9; font-style: italic; }}\n    </style>\n</head>\n<body>\n<div class=\"card\">\n    <h1>Reporte de {tipo.upper()} de {microservice} en {ambiente.upper()}</h1>\n""")
+    with open(html_path, 'w') as html_file:
+        html_file.write("""
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte</title>
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            padding: 20px;
+            background-color: #f9f9f9;
+            color: #222;
+        }
+        .log-title, .pods-title, .kv-title, .configmap-title, .secrets-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 25px;
+        }
+        .log-title       { color: #1e1e1e; }
+        .pods-title      { color: #28a745; }
+        .kv-title        { color: #2c7be5; }
+        .configmap-title { color: #2c7be5; }
+        .secrets-title   { color: #ff9800; }
 
-        t = tipo.lower()
-        # Logs section
-        if t in ['logs', 'get logs']:
-            html.write('<div class="section-title">📋 Logs de aplicación</div>\n')
+        .log-line {
+            background-color: #e8e8e8;
+            padding: 4px;
+            margin: 2px 0;
+            border-radius: 4px;
+        }
+        .pods-table, .kv-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            margin-bottom: 30px;
+        }
+        .pods-table th, .pods-table td,
+        .kv-table td {
+            border: 1px solid #ccc;
+            padding: 6px 10px;
+            text-align: left;
+        }
+        .pods-table th {
+            background-color: #e6f4ea;
+            font-weight: bold;
+        }
+        .no-value td {
+            background-color: #f4f4f4;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+""")
+
+        tipo_lower = tipo.lower()
+
+        if tipo_lower == "log":
+            html_file.write('<div class="log-title">📄 <strong>LOG</strong></div>')
             for line in lines:
-                esc = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                if 'ERROR' in line:
-                    html.write(f'<div class="line error">❌ {esc}</div>\n')
-                elif 'WARNING' in line:
-                    html.write(f'<div class="line warning">⚠️ {esc}</div>\n')
-                elif 'INFO' in line:
-                    html.write(f'<div class="line info">ℹ️ {esc}</div>\n')
-                else:
-                    html.write(f'<div class="line normal">• {esc}</div>\n')
+                html_file.write(f'<div class="log-line">{line.strip()}</div>')
 
-        # Pods section
-        elif t in ['pods', 'get pods']:
-            html.write('<div class="section-title">🧩 Lista de Pods</div>\n')
+        elif tipo_lower == "pods":
+            html_file.write('<div class="pods-title">🧩 <strong>PODS</strong></div>')
             if lines:
                 headers = lines[0].split()
-                html.write('<table class="pods-table"><tr>' + ''.join(f"<th>{h}</th>" for h in headers) + '</tr>\n')
+                html_file.write('<table class="pods-table"><tr>')
+                for header in headers:
+                    html_file.write(f'<th>{header}</th>')
+                html_file.write('</tr>')
                 for line in lines[1:]:
-                    if not line.strip(): continue
                     cols = line.split()
-                    html.write('<tr>' + ''.join(f"<td>{c}</td>" for c in cols) + '</tr>\n')
-                html.write('</table>\n')
+                    html_file.write('<tr>')
+                    for col in cols:
+                        html_file.write(f'<td>{col}</td>')
+                    html_file.write('</tr>')
+                html_file.write('</table>')
 
-        # Key-Value table for deployment, describe, quota
-        elif t in ['deployment', 'get deployment', 'describe', 'describe pod', 'quota', 'get quota']:
-            html.write(f'<div class="section-title">📊 Detalle {tipo.title()}</div>\n')
-            html.write('<table class="kv-table">\n  <tr><th>Variable</th><th>Valor</th></tr>\n')
+        elif tipo_lower in ["deployment", "describe", "quota", "get configmap"]:
+            titulo = {
+                "deployment": "🚀 <strong>DEPLOYMENT</strong>",
+                "describe": "🔍 <strong>DESCRIBE</strong>",
+                "quota": "📊 <strong>QUOTA</strong>",
+                "get configmap": "📦 <strong>CONFIGMAP</strong>"
+            }.get(tipo_lower, tipo.upper())
+
+            clase = {
+                "deployment": "kv-title",
+                "describe": "kv-title",
+                "quota": "kv-title",
+                "get configmap": "configmap-title"
+            }.get(tipo_lower, "kv-title")
+
+            html_file.write(f'<div class="{clase}">{titulo}</div>')
+            html_file.write('<table class="kv-table">')
             for line in lines:
-                esc = line.strip()
-                if not esc:
-                    continue
-                if ':' in esc:
-                    key, value = [p.strip() for p in esc.split(':', 1)]
-                    if value:
-                        html.write(f'  <tr><td>{key}</td><td>{value}</td></tr>\n')
-                    else:
-                        html.write(f'  <tr class="no-value"><td colspan=\"2\">{esc}</td></tr>\n')
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    html_file.write(f'<tr><td>{key.strip()}</td><td>{value.strip()}</td></tr>')
                 else:
-                    html.write(f'  <tr class="no-value"><td colspan=\"2\">{esc}</td></tr>\n')
-            html.write('</table>\n')
+                    html_file.write(f'<tr class="no-value"><td colspan="2">{line.strip()}</td></tr>')
+            html_file.write('</table>')
 
-        # Fallback general content
-        else:
-            html.write('<div class="section-title">📄 Contenido General</div>\n')
+        elif tipo_lower == "secrets":
+            html_file.write('<div class="secrets-title">🔐 <strong>SECRETS</strong></div>')
+            html_file.write('<table class="kv-table">')
             for line in lines:
-                esc = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').strip()
-                html.write(f'<p>{esc}</p>\n')
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    if value:
+                        html_file.write(f'<tr><td>{key}</td><td>{value}</td></tr>')
+                    else:
+                        html_file.write(f'<tr><td>{key}</td><td><em>(oculto)</em></td></tr>')
+                else:
+                    html_file.write(f'<tr class="no-value"><td colspan="2">{line.strip()}</td></tr>')
+            html_file.write('</table>')
 
-        html.write("""\n</div>\n</body>\n</html>""")
+        else:
+            html_file.write('<div class="log-title">⚠️ Tipo no reconocido</div>')
+            for line in lines:
+                html_file.write(f'<div class="log-line">{line.strip()}</div>')
 
-if __name__ == '__main__':
-    if len(sys.argv) != 5:
-        print("Uso: python logs.py <input_path> <microservice> <ambiente> <tipo>")
-        sys.exit(1)
+        html_file.write("""
+</body>
+</html>
+""")
 
-    _, input_path, microservice, ambiente, tipo = sys.argv
-    log_to_html(input_path, 'reporte.html', microservice, ambiente, tipo)
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("Uso: python logs.py <ruta_log> <ruta_html> <tipo>")
+    else:
+        log_to_html(sys.argv[1], sys.argv[2], sys.argv[3])
