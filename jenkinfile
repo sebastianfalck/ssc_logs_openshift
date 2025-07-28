@@ -223,7 +223,7 @@ pipeline {
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-                        utils.getSecrets(namespace, params.NOMBRE, params.AMBIENTE)
+                        utils.extractSecret(namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -231,7 +231,7 @@ pipeline {
                     wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "Secrets ${namespace} - ${params.AMBIENTE}",
+                            subject: "Secret ${params.NOMBRE} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
@@ -251,7 +251,7 @@ pipeline {
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-                        utils.getConfigMaps(namespace, params.NOMBRE, params.AMBIENTE)
+                        utils.extractConfigMap(namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -259,14 +259,13 @@ pipeline {
                     wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "ConfigMaps ${namespace} - ${params.AMBIENTE}",
+                            subject: "ConfigMap ${params.NOMBRE} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
                 }
             }
         }
-
     }
 }
 
@@ -334,14 +333,13 @@ class JenkinsUtils {
         steps.sh "python logs.py pods.txt ${nombre} ${ambiente} pods"
     }
 
-    def getSecrets(namespace, nombre, ambiente) {
-        steps.sh "oc get secret -n ${namespace} -o yaml > secrets.yaml"
-        steps.sh "python logs.py secrets.yaml ${nombre} ${ambiente} secrets"
+    def extractSecret(namespace, nombre, ambiente) {
+        steps.sh "oc extract secret ${nombre} -n ${namespace} --to=- > secret.txt"
+        steps.sh "python logs.py secret.txt ${nombre} ${ambiente} secret"
     }
 
-    def getConfigMaps(namespace, nombre, ambiente) {
-        steps.sh "oc get configmap -n ${namespace} -o yaml > configmaps.yaml"
-        steps.sh "python logs.py configmaps.yaml ${nombre} ${ambiente} configmaps"
+    def extractConfigMap(namespace, nombre, ambiente) {
+        steps.sh "oc extract configmap ${nombre} -n ${namespace} --to=- > configmap.txt"
+        steps.sh "python logs.py configmap.txt ${nombre} ${ambiente} configmap"
     }
-
 }
