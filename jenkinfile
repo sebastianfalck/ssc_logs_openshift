@@ -7,14 +7,13 @@ pipeline {
         SERVER_INTERNAL  = 'https://internal.openshift.example:6443'
         SERVER_EXTERNAL  = 'https://external.openshift.example:6443'
         SERVER_DRS       = 'https://drs.openshift.example:6443'
-        SENSITIVE_KEYS   = 'password,token,secret,apikey,credentials'
     }
 
     parameters {
         string(name: 'NOMBRE',    defaultValue: '',                   description: 'Nombre del microservicio')
         choice(name: 'AMBIENTE',  choices: ['dev','uat','prd','drs'], description: 'Ambiente')
         choice(name: 'ACCION',
-               choices: ['none','get logs','get deployment','describe pod','get quota','get pods','get secrets'],
+               choices: ['none','get logs','get deployment','describe pod','get quota','get pods','get secrets','get configmaps'],
                description: 'Comando a ejecutar')
     }
 
@@ -61,24 +60,6 @@ pipeline {
                     echo "País ruta: ${paisRuta}, país CSV: ${paisCsv}"
                     if (paisCsv != paisRuta) {
                         error "El microservicio no pertenece a tu país: ${paisCsv} vs ${paisRuta}"
-                    }
-                }
-            }
-        }
-
-        stage('Test OC Login') {
-            steps {
-                script {
-                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils     = new JenkinsUtils(this)
-                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
-
-                    wrap([$class: 'MaskPasswordsBuildWrapper',
-                        varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
-                        echo "Probando login con servidor: ${server}"
-                        sh utils.getOcLoginCmd(server, env.TOKEN)
-                        sh "oc whoami"
-                        sh utils.getOcLogoutCmd()
                     }
                 }
             }
@@ -234,29 +215,15 @@ pipeline {
             when { expression { params.ACCION == 'get secrets' } }
             steps {
                 script {
-                    def fila       = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils      = new JenkinsUtils(this)
-                    def server     = utils.getServer(params.AMBIENTE, fila.usage)
-                    def namespace  = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-                    def secret     = "${params.NOMBRE}"
-                    def pattern    = env.SENSITIVE_KEYS.split(',').join('|')
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-
-                        sh '''
-                            echo "" > secrets.txt
-                            oc get secret ${secret} -n ${namespace} -o json | jq -r '.data | to_entries[] | "\\(.key)=\\(.value)"' | while IFS== read -r k v; do
-                                if [[ "$k" =~ (${pattern}) ]]; then
-                                    echo "$k=" >> secrets.txt
-                                else
-                                    echo "$k=$(echo $v | base64 -d)" >> secrets.txt
-                                fi
-                            done
-                        '''
-
-                        sh "python logs.py secrets.txt ${params.NOMBRE} ${params.AMBIENTE} secrets"
+                        utils.getSecrets(namespace, params.NOMBRE, params.AMBIENTE)
                         sh utils.getOcLogoutCmd()
                     }
 
@@ -264,12 +231,117 @@ pipeline {
                     wrap([$class:'BuildUser']) {
                         emailext(
                             to: env.BUILD_USER_EMAIL,
-                            subject: "Secrets ${params.NOMBRE} - ${params.AMBIENTE}",
+                            subject: "Secrets ${namespace} - ${params.AMBIENTE}",
                             body: "${env.logSalida}"
                         )
                     }
                 }
             }
         }
+
+        stage('get configmaps') {
+            when { expression { params.ACCION == 'get configmaps' } }
+            steps {
+                script {
+                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
+                    def utils     = new JenkinsUtils(this)
+                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
+                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
+
+                    wrap([$class: 'MaskPasswordsBuildWrapper',
+                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
+                        sh utils.getOcLoginCmd(server, env.TOKEN)
+                        utils.getConfigMaps(namespace, params.NOMBRE, params.AMBIENTE)
+                        sh utils.getOcLogoutCmd()
+                    }
+
+                    env.logSalida = readFile('reporte.html')
+                    wrap([$class:'BuildUser']) {
+                        emailext(
+                            to: env.BUILD_USER_EMAIL,
+                            subject: "ConfigMaps ${namespace} - ${params.AMBIENTE}",
+                            body: "${env.logSalida}"
+                        )
+                    }
+                }
+            }
+        }
+
     }
+}
+
+// ======= JenkinsUtils.groovy helper =========
+
+class JenkinsUtils {
+    def steps
+    JenkinsUtils(steps) { this.steps = steps }
+
+    def getServer(ambiente, tipoAcceso) {
+        def serverMap = [
+            'drs'     : { -> steps.env.SERVER_DRS },
+            'internal': { -> steps.env.SERVER_INTERNAL },
+            'external': { -> steps.env.SERVER_EXTERNAL }
+        ]
+        if (ambiente?.toLowerCase() == 'drs') return serverMap['drs']()
+        def key = tipoAcceso?.toLowerCase()
+        return serverMap.get(key, serverMap['internal'])()
+    }
+
+    def getOcLoginCmd(server, token) {
+        return "oc login --insecure-skip-tls-verify --server=${server} --token=${token}"
+    }
+
+    def getOcLogoutCmd() {
+        return "oc logout"
+    }
+
+    def getPodName(namespace, nombre) {
+        return steps.sh(
+            script: "oc get pod -n ${namespace} | grep '${nombre}-.*' | awk '{print \$1}' | head -n1",
+            returnStdout: true
+        ).trim()
+    }
+
+    def getLogs(pod, namespace, nombre, ambiente) {
+        steps.sh "oc logs ${pod} -n ${namespace} > ${pod}.log"
+        steps.sh "python logs.py ${pod}.log ${nombre} ${ambiente} logs"
+    }
+
+    def getDeploymentName(namespace, nombre) {
+        return steps.sh(
+            script: "oc get deployment -n ${namespace} | grep '${nombre}' | awk '{print \$1}'",
+            returnStdout: true
+        ).trim()
+    }
+
+    def getDeploymentYaml(deployment, namespace, nombre, ambiente) {
+        steps.sh "oc get deployment ${deployment} -n ${namespace} -o yaml > deployment.yaml"
+        steps.sh "python logs.py deployment.yaml ${nombre} ${ambiente} deployment"
+    }
+
+    def getDescribePod(pod, namespace, nombre, ambiente) {
+        steps.sh "oc describe pod ${pod} -n ${namespace} > describe.txt"
+        steps.sh "python logs.py describe.txt ${nombre} ${ambiente} describe"
+    }
+
+    def getQuota(namespace, nombre, ambiente) {
+        steps.sh "oc get resourcequota -n ${namespace} -o yaml > quota.yaml"
+        steps.sh "python logs.py quota.yaml ${nombre} ${ambiente} quota"
+    }
+
+    def getPods(namespace, nombre, ambiente) {
+        steps.sh "oc get pods -n ${namespace} -o wide > pods.txt"
+        steps.sh "python logs.py pods.txt ${nombre} ${ambiente} pods"
+    }
+
+    def getSecrets(namespace, nombre, ambiente) {
+        steps.sh "oc get secret -n ${namespace} -o yaml > secrets.yaml"
+        steps.sh "python logs.py secrets.yaml ${nombre} ${ambiente} secrets"
+    }
+
+    def getConfigMaps(namespace, nombre, ambiente) {
+        steps.sh "oc get configmap -n ${namespace} -o yaml > configmaps.yaml"
+        steps.sh "python logs.py configmaps.yaml ${nombre} ${ambiente} configmaps"
+    }
+
 }
