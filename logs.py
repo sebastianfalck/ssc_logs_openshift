@@ -1,61 +1,63 @@
 import sys
 
-def log_to_html(log_path, html_path, tipo):
+def log_to_html(log_path, nombre, ambiente, tipo):
+    html_path = "reporte.html"
+
     with open(log_path, 'r') as log_file:
         lines = log_file.readlines()
 
     with open(html_path, 'w') as html_file:
-        html_file.write("""
+        html_file.write(f"""
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Reporte</title>
+    <title>Reporte - {nombre} - {ambiente}</title>
     <style>
-        body {
+        body {{
             font-family: 'Courier New', Courier, monospace;
             padding: 20px;
             background-color: #f9f9f9;
             color: #222;
-        }
-        .log-title, .pods-title, .kv-title, .configmap-title, .secrets-title {
+        }}
+        .log-title, .pods-title, .kv-title, .configmap-title, .secrets-title {{
             font-size: 18px;
             font-weight: bold;
             margin-top: 25px;
-        }
-        .log-title       { color: #1e1e1e; }
-        .pods-title      { color: #28a745; }
-        .kv-title        { color: #2c7be5; }
-        .configmap-title { color: #2c7be5; }
-        .secrets-title   { color: #ff9800; }
+        }}
+        .log-title       {{ color: #1e1e1e; }}
+        .pods-title      {{ color: #28a745; }}
+        .kv-title        {{ color: #2c7be5; }}
+        .configmap-title {{ color: #2c7be5; }}
+        .secrets-title   {{ color: #ff9800; }}
 
-        .log-line {
+        .log-line {{
             background-color: #e8e8e8;
             padding: 4px;
             margin: 2px 0;
             border-radius: 4px;
-        }
-        .pods-table, .kv-table {
+        }}
+        .pods-table, .kv-table {{
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
             margin-bottom: 30px;
-        }
+        }}
         .pods-table th, .pods-table td,
-        .kv-table td {
+        .kv-table td {{
             border: 1px solid #ccc;
             padding: 6px 10px;
             text-align: left;
-        }
-        .pods-table th {
+        }}
+        .pods-table th {{
             background-color: #e6f4ea;
             font-weight: bold;
-        }
-        .no-value td {
+        }}
+        .no-value td {{
             background-color: #f4f4f4;
             font-style: italic;
             color: #666;
-        }
+        }}
     </style>
 </head>
 <body>
@@ -63,13 +65,13 @@ def log_to_html(log_path, html_path, tipo):
 
         tipo_lower = tipo.lower()
 
-        if tipo_lower == "log":
-            html_file.write('<div class="log-title">📄 <strong>LOG</strong></div>')
+        if tipo_lower == "logs":
+            html_file.write(f'<div class="log-title">📄 <strong>LOG</strong></div>')
             for line in lines:
                 html_file.write(f'<div class="log-line">{line.strip()}</div>')
 
         elif tipo_lower == "pods":
-            html_file.write('<div class="pods-title">🧩 <strong>PODS</strong></div>')
+            html_file.write(f'<div class="pods-title">🧩 <strong>PODS</strong></div>')
             if lines:
                 headers = lines[0].split()
                 html_file.write('<table class="pods-table"><tr>')
@@ -84,19 +86,19 @@ def log_to_html(log_path, html_path, tipo):
                     html_file.write('</tr>')
                 html_file.write('</table>')
 
-        elif tipo_lower in ["deployment", "describe", "quota", "get configmap"]:
+        elif tipo_lower in ["deployment", "describe", "quota", "configmaps"]:
             titulo = {
                 "deployment": "🚀 <strong>DEPLOYMENT</strong>",
                 "describe": "🔍 <strong>DESCRIBE</strong>",
                 "quota": "📊 <strong>QUOTA</strong>",
-                "get configmap": "📦 <strong>CONFIGMAP</strong>"
+                "configmaps": "📦 <strong>CONFIGMAPS</strong>"
             }.get(tipo_lower, tipo.upper())
 
             clase = {
                 "deployment": "kv-title",
                 "describe": "kv-title",
                 "quota": "kv-title",
-                "get configmap": "configmap-title"
+                "configmaps": "configmap-title"
             }.get(tipo_lower, "kv-title")
 
             html_file.write(f'<div class="{clase}">{titulo}</div>')
@@ -115,10 +117,8 @@ def log_to_html(log_path, html_path, tipo):
             for line in lines:
                 if '=' in line:
                     key, value = line.strip().split('=', 1)
-                    if value:
-                        html_file.write(f'<tr><td>{key}</td><td>{value}</td></tr>')
-                    else:
-                        html_file.write(f'<tr><td>{key}</td><td><em>(oculto)</em></td></tr>')
+                    value = value if value else "<em>(oculto)</em>"
+                    html_file.write(f'<tr><td>{key}</td><td>{value}</td></tr>')
                 else:
                     html_file.write(f'<tr class="no-value"><td colspan="2">{line.strip()}</td></tr>')
             html_file.write('</table>')
@@ -136,6 +136,7 @@ def log_to_html(log_path, html_path, tipo):
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("Uso: python logs.py <ruta_log> <ruta_html> <tipo>")
+        print("Uso: python logs.py <ruta_log> <nombre> <ambiente> <tipo>")
+        print("Ejemplo: python logs.py pods.txt ms-app dev pods")
     else:
-        log_to_html(sys.argv[1], sys.argv[2], sys.argv[3])
+        log_to_html(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
