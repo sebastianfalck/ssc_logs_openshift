@@ -120,6 +120,17 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
                     html.write(f'<div class="line normal">{combined}</div>\n')
                     key = None
 
+        elif tipo == 'env':
+            html.write('<div class="log-title">🌱 Variables de entorno (.env)</div>')
+            for line in lines:
+                esc = line.strip()
+                if '=' in esc:
+                    key, value = esc.split('=', 1)
+                    key = key.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    value = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    html.write(f'<div class="section">🔑 {key}</div>\n')
+                    html.write(f'<div class="line normal">{value}</div>\n')
+
         elif tipo in ['deployment', 'quota']:
             label = {
                 'deployment': '📦 Despliegue YAML',
