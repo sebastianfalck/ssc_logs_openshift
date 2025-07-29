@@ -102,25 +102,13 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
                 else:
                     html.write(f'<div class="line normal">{esc}</div>\n')
 
-        elif tipo in ['secrets', 'configmaps']:
+        elif tipo in ['secrets', 'configmaps', 'env']:
             label = {
                 'secrets': '🔐 Secrets',
-                'configmaps': '🧾 ConfigMaps'
+                'configmaps': '🧾 ConfigMaps',
+                'env': '🌱 Variables de entorno (.env)'
             }[tipo]
             html.write(f'<div class="log-title">{label}</div>\n')
-
-            for line in lines:
-                esc = line.strip()
-                if not esc or '=' not in esc:
-                    continue
-                key, valor = esc.split('=', 1)
-                key = key.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                valor = valor.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                html.write(f'<div class="section">🔑 {key}</div>\n')
-                html.write(f'<div class="line normal">{valor}</div>\n')
-
-        elif tipo == 'env':
-            html.write('<div class="log-title">🌱 Variables de entorno (.env)</div>')
             for line in lines:
                 esc = line.strip()
                 if '=' in esc:
@@ -162,7 +150,6 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
 </body>
 </html>
 """)
-
 
 if __name__ == '__main__':
     if len(sys.argv) != 5:
