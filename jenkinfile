@@ -333,23 +333,19 @@ class JenkinsUtils {
         steps.sh "python logs.py pods.txt ${nombre} ${ambiente} pods"
     }
 
-    def extractSecret(namespace, nombre, ambiente) {
-        steps.sh """
-            oc extract secret/${nombre} -n ${namespace} --to=- | awk '
-                /^#/ { key = gensub(/^# *(.+)/, "\\\\1", "g"); next }
-                { print key "=" \$0 }
-            ' > secret.env
-        """
-        steps.sh "python logs.py secret.env ${nombre} ${ambiente} env"
-    }
+def extractSecret(namespace, nombre, ambiente) {
+    steps.sh """
+        oc get secret ${nombre} -n ${namespace} -o json | jq -r '.data | to_entries[] | "\\(.key)=\\(.value | @base64d)"' > secret.env
+    """
+    steps.sh "python logs.py secret.env ${nombre} ${ambiente} env"
+}
 
-    def extractConfigMap(namespace, nombre, ambiente) {
-        steps.sh """
-            oc extract configmap/${nombre} -n ${namespace} --to=- | awk '
-                /^#/ { key = gensub(/^# *(.+)/, "\\\\1", "g"); next }
-                { print key "=" \$0 }
-            ' > configmap.env
-        """
-        steps.sh "python logs.py configmap.env ${nombre} ${ambiente} env"
-    }
+def extractConfigMap(namespace, nombre, ambiente) {
+    steps.sh """
+        oc get configmap ${nombre} -n ${namespace} -o json | jq -r '.data | to_entries[] | "\\(.key)=\\(.value)"' > configmap.env
+    """
+    steps.sh "python logs.py configmap.env ${nombre} ${ambiente} env"
+}
+
+
 }
