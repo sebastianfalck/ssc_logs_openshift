@@ -109,16 +109,15 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
             }[tipo]
             html.write(f'<div class="log-title">{label}</div>\n')
 
-            key = None
             for line in lines:
-                stripped = line.strip()
-                if stripped.startswith("#"):
-                    key = stripped[1:].strip()
-                elif key is not None:
-                    valor = stripped
-                    combined = f"{key}={valor}".replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    html.write(f'<div class="line normal">{combined}</div>\n')
-                    key = None
+                esc = line.strip()
+                if not esc or '=' not in esc:
+                    continue
+                key, valor = esc.split('=', 1)
+                key = key.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                valor = valor.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                html.write(f'<div class="section">🔑 {key}</div>\n')
+                html.write(f'<div class="line normal">{valor}</div>\n')
 
         elif tipo == 'env':
             html.write('<div class="log-title">🌱 Variables de entorno (.env)</div>')
@@ -163,6 +162,7 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
 </body>
 </html>
 """)
+
 
 if __name__ == '__main__':
     if len(sys.argv) != 5:
