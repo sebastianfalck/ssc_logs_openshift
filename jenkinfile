@@ -335,8 +335,8 @@ class JenkinsUtils {
 
     def extractSecret(namespace, nombre, ambiente) {
         steps.sh """
-            oc extract secret ${nombre} -n ${namespace} --to=- | awk '
-                /^#/ { key = substr(\$0, 3); next }
+            oc extract secret/${nombre} -n ${namespace} --to=- | awk '
+                /^#/ { key = gensub(/^# *(.+)/, "\\\\1", "g"); next }
                 { print key "=" \$0 }
             ' > secret.env
         """
@@ -345,11 +345,11 @@ class JenkinsUtils {
 
     def extractConfigMap(namespace, nombre, ambiente) {
         steps.sh """
-            oc extract configmap ${nombre} -n ${namespace} --to=- | awk '
-                /^#/ { key = substr(\$0, 3); next }
+            oc extract configmap/${nombre} -n ${namespace} --to=- | awk '
+                /^#/ { key = gensub(/^# *(.+)/, "\\\\1", "g"); next }
                 { print key "=" \$0 }
             ' > configmap.env
         """
         steps.sh "python logs.py configmap.env ${nombre} ${ambiente} env"
-
+    }
 }
