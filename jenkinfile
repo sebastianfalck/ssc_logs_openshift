@@ -334,20 +334,12 @@ class JenkinsUtils {
     }
 
     def extractSecret(namespace, nombre, ambiente) {
-        steps.sh """
-            oc get secret ${nombre} -n ${namespace} -o jsonpath='{.data}' | tr ',' '\\n' | sed 's/[{}"]//g' | while IFS=':' read k v; do
-                echo "\$k=\$(echo \$v | base64 -d)"
-            done > secret.txt
-        """
+        steps.sh "oc extract secret ${nombre} -n ${namespace} --to=- > secret.txt"
         steps.sh "python logs.py secret.txt ${nombre} ${ambiente} secret"
     }
 
     def extractConfigMap(namespace, nombre, ambiente) {
-        steps.sh """
-            oc get configmap ${nombre} -n ${namespace} -o jsonpath='{.data}' | tr ',' '\\n' | sed 's/[{}"]//g' | while IFS=':' read k v; do
-                echo "\$k=\$v"
-            done > configmap.txt
-        """
+        steps.sh "oc extract configmap ${nombre} -n ${namespace} --to=- > configmap.txt"
         steps.sh "python logs.py configmap.txt ${nombre} ${ambiente} configmap"
     }
 }

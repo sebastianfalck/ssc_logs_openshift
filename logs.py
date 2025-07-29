@@ -102,13 +102,29 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
                 else:
                     html.write(f'<div class="line normal">{esc}</div>\n')
 
-        elif tipo in ['deployment', 'quota', 'secrets', 'configmaps']:
+        elif tipo in ['secrets', 'configmaps']:
             label = {
-                'deployment': '📦 Despliegue YAML',
-                'quota': '📊 Cuotas de Recursos',
                 'secrets': '🔐 Secrets',
                 'configmaps': '🧾 ConfigMaps'
-            }.get(tipo, '📄 YAML')
+            }[tipo]
+            html.write(f'<div class="log-title">{label}</div>\n')
+
+            key = None
+            for line in lines:
+                esc = line.strip()
+                if esc.startswith("#"):
+                    key = esc[1:].strip()  # Quita el símbolo #
+                elif key:
+                    valor = esc
+                    combined = f"{key}={valor}".replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    html.write(f'<div class="line normal">{combined}</div>\n')
+                    key = None
+
+        elif tipo in ['deployment', 'quota']:
+            label = {
+                'deployment': '📦 Despliegue YAML',
+                'quota': '📊 Cuotas de Recursos'
+            }[tipo]
             html.write(f'<div class="log-title">{label}</div>')
             yaml_block = "".join(lines)
             esc = yaml_block.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
