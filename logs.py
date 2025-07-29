@@ -111,11 +111,11 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
 
             key = None
             for line in lines:
-                esc = line.strip()
-                if esc.startswith("#"):
-                    key = esc[1:].strip()  # Quita el símbolo #
-                elif key:
-                    valor = esc
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    key = stripped[1:].strip()
+                elif key is not None:
+                    valor = stripped
                     combined = f"{key}={valor}".replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                     html.write(f'<div class="line normal">{combined}</div>\n')
                     key = None
@@ -123,7 +123,7 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
         elif tipo in ['deployment', 'quota']:
             label = {
                 'deployment': '📦 Despliegue YAML',
-                'quota': '📊 Cuotas de Recursos'
+                'quota': '📊 Cuotas de Recursos',
             }[tipo]
             html.write(f'<div class="log-title">{label}</div>')
             yaml_block = "".join(lines)
