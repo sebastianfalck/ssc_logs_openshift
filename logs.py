@@ -3,9 +3,12 @@ import re
 import os
 
 def sanitize_line(line, sensitive_words):
-    for word in sensitive_words:
-        pattern = re.compile(re.escape(word), re.IGNORECASE)
-        line = pattern.sub("****", line)
+    if '=' in line:
+        key, value = line.split('=', 1)
+        for word in sensitive_words:
+            if re.search(re.escape(word), key, re.IGNORECASE):
+                return f"{key}=******"
+        return f"{key}={value}"
     return line
 
 def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_words=None):
@@ -163,7 +166,6 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
 </body>
 </html>
 """)
-
 
 if __name__ == '__main__':
     if len(sys.argv) != 5:
