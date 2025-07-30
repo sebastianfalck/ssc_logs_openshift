@@ -1,9 +1,18 @@
 import sys
 import re
+import os
 
-def log_to_html(input_path, html_path, microservice, ambiente, tipo):
+def sanitize_line(line, sensitive_words):
+    for word in sensitive_words:
+        pattern = re.compile(re.escape(word), re.IGNORECASE)
+        line = pattern.sub("****", line)
+    return line
+
+def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_words=None):
     with open(input_path, 'r') as f:
         lines = f.readlines()
+
+    should_sanitize = tipo.lower() in ['secrets', 'configmaps', 'env']
 
     with open(html_path, 'w') as html:
         html.write(f"""<!DOCTYPE html>
@@ -91,13 +100,11 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
 
         elif tipo == 'describe':
             html.write('<div class="log-title">🔍 Detalle del Pod</div>')
-            current_section = ''
             for line in lines:
                 esc = line.strip()
                 if not esc:
                     continue
                 if not line.startswith(" "):
-                    current_section = esc
                     html.write(f'<div class="section">📌 {esc}</div>\n')
                 else:
                     html.write(f'<div class="line normal">{esc}</div>\n')
@@ -111,6 +118,8 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
             html.write(f'<div class="log-title">{label}</div>\n')
             for line in lines:
                 esc = line.strip()
+                if sensitive_words and should_sanitize:
+                    esc = sanitize_line(esc, sensitive_words)
                 if '=' in esc:
                     key, value = esc.split('=', 1)
                     key = key.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -125,6 +134,8 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
             }[tipo]
             html.write(f'<div class="log-title">{label}</div>')
             yaml_block = "".join(lines)
+            if sensitive_words and should_sanitize:
+                yaml_block = sanitize_line(yaml_block, sensitive_words)
             esc = yaml_block.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             html.write(f'<div class="yaml">{esc}</div>\n')
 
@@ -143,6 +154,8 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
             html.write('<div class="log-title">📄 Contenido General</div>')
             for line in lines:
                 esc = line.strip()
+                if sensitive_words and should_sanitize:
+                    esc = sanitize_line(esc, sensitive_words)
                 html.write(f'<div class="line normal">{esc}</div>\n')
 
         html.write("""
@@ -151,10 +164,16 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo):
 </html>
 """)
 
+
 if __name__ == '__main__':
     if len(sys.argv) != 5:
         print("Uso: python logs.py <input_path> <microservice> <ambiente> <tipo>")
         sys.exit(1)
 
     _, input_path, microservice, ambiente, tipo = sys.argv
-    log_to_html(input_path, 'reporte.html', microservice, ambiente, tipo)
+
+    # Carga desde env var 'SENSITIVE_WORDS=password,username,apiKey'
+    sensitive_env = os.getenv("SENSITIVE_WORDS", "")
+    sensitive_words = [word.strip() for word in sensitive_env.split(",") if word.strip()]
+
+    log_to_html(input_path, 'reporte.html', microservice, ambiente, tipo, sensitive_words)

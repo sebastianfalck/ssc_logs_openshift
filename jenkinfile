@@ -7,6 +7,7 @@ pipeline {
         SERVER_INTERNAL  = 'https://internal.openshift.example:6443'
         SERVER_EXTERNAL  = 'https://external.openshift.example:6443'
         SERVER_DRS       = 'https://drs.openshift.example:6443'
+        SENSITIVE_WORDS  = 'password,username,user,token,secret'
     }
 
     parameters {
@@ -32,8 +33,8 @@ pipeline {
             steps {
                 script {
                     def lines   = readFile('project/ProjectsJenkinsCardifCSV.csv')
-                                     .readLines()
-                                     .findAll { it.trim() }
+                                         .readLines()
+                                         .findAll { it.trim() }
                     def headers = lines[0].split(';').collect { it.trim() }
                     def fila = lines.drop(1)
                         .collect { l ->
@@ -65,8 +66,8 @@ pipeline {
             }
         }
 
-        stage('get logs') {
-            when { expression { params.ACCION == 'get logs' } }
+        stage('Ejecutar Acción') {
+            when { expression { params.ACCION != 'none' } }
             steps {
                 script {
                     def fila      = readJSON file: "fila_${params.NOMBRE}.json"
@@ -74,194 +75,72 @@ pipeline {
                     def server    = utils.getServer(params.AMBIENTE, fila.usage)
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
-                    wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
-                        sh utils.getOcLoginCmd(server, env.TOKEN)
-                        def pod = utils.getPodName(namespace, params.NOMBRE)
-                        echo "Pod: ${pod}"
-                        utils.getLogs(pod, namespace, params.NOMBRE, params.AMBIENTE)
-                        sh utils.getOcLogoutCmd()
+                    def sanitize = { text ->
+                        def result = text
+                        env.SENSITIVE_WORDS.split(',').each { word ->
+                            def regex = "(?i)${java.util.regex.Pattern.quote(word.trim())}"
+                            result = result.replaceAll(regex, '****')
+                        }
+                        return result
                     }
-
-                    env.logSalida = readFile('reporte.html')
-                    wrap([$class:'BuildUser']) {
-                        emailext(
-                            to: env.BUILD_USER_EMAIL,
-                            subject: "Logs ${params.NOMBRE} - ${params.AMBIENTE}",
-                            body: "${env.logSalida}"
-                        )
-                    }
-                }
-            }
-        }
-
-        stage('get deployment') {
-            when { expression { params.ACCION == 'get deployment' } }
-            steps {
-                script {
-                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils     = new JenkinsUtils(this)
-                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
-                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
                           varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
                         sh utils.getOcLoginCmd(server, env.TOKEN)
-                        def deployment = utils.getDeploymentName(namespace, params.NOMBRE)
-                        echo "Deployment: ${deployment}"
-                        utils.getDeploymentYaml(deployment, namespace, params.NOMBRE, params.AMBIENTE)
+
+                        def salida
+
+                        switch (params.ACCION) {
+                            case 'get logs':
+                                def pod = utils.getPodName(namespace, params.NOMBRE)
+                                echo "Pod: ${pod}"
+                                utils.getLogs(pod, namespace, params.NOMBRE, params.AMBIENTE)
+                                salida = readFile('reporte.html')
+                                break
+                            case 'get deployment':
+                                def deployment = utils.getDeploymentName(namespace, params.NOMBRE)
+                                echo "Deployment: ${deployment}"
+                                utils.getDeploymentYaml(deployment, namespace, params.NOMBRE, params.AMBIENTE)
+                                salida = readFile('reporte.html')
+                                break
+                            case 'describe pod':
+                                def pod = utils.getPodName(namespace, params.NOMBRE)
+                                echo "Pod: ${pod}"
+                                utils.getDescribePod(pod, namespace, params.NOMBRE, params.AMBIENTE)
+                                salida = readFile('reporte.html')
+                                break
+                            case 'get quota':
+                                utils.getQuota(namespace, params.NOMBRE, params.AMBIENTE)
+                                salida = readFile('reporte.html')
+                                break
+                            case 'get pods':
+                                utils.getPods(namespace, params.NOMBRE, params.AMBIENTE)
+                                salida = readFile('reporte.html')
+                                break
+                            case 'get secrets':
+                                if (['qa', 'prd'].contains(params.AMBIENTE)) {
+                                    input message: "¿Aprobar acceso a secrets de ${params.AMBIENTE} para el microservicio ${params.NOMBRE}?",
+                                          ok: 'Aprobar',
+                                          submitter: 'admin1,admin2'
+                                }
+                                utils.extractSecret(namespace, params.NOMBRE, params.AMBIENTE)
+                                salida = sanitize(readFile('reporte.html'))
+                                break
+                            case 'get configmaps':
+                                utils.extractConfigMap(namespace, params.NOMBRE, params.AMBIENTE)
+                                salida = sanitize(readFile('reporte.html'))
+                                break
+                        }
+
+                        wrap([$class:'BuildUser']) {
+                            emailext(
+                                to: env.BUILD_USER_EMAIL,
+                                subject: "${params.ACCION} ${params.NOMBRE} - ${params.AMBIENTE}",
+                                body: salida
+                            )
+                        }
+
                         sh utils.getOcLogoutCmd()
-                    }
-
-                    env.logSalida = readFile('reporte.html')
-                    wrap([$class:'BuildUser']) {
-                        emailext(
-                            to: env.BUILD_USER_EMAIL,
-                            subject: "Deployment ${params.NOMBRE} - ${params.AMBIENTE}",
-                            body: "${env.logSalida}"
-                        )
-                    }
-                }
-            }
-        }
-
-        stage('describe pod') {
-            when { expression { params.ACCION == 'describe pod' } }
-            steps {
-                script {
-                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils     = new JenkinsUtils(this)
-                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
-                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-
-                    wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
-                        sh utils.getOcLoginCmd(server, env.TOKEN)
-                        def pod = utils.getPodName(namespace, params.NOMBRE)
-                        echo "Pod: ${pod}"
-                        utils.getDescribePod(pod, namespace, params.NOMBRE, params.AMBIENTE)
-                        sh utils.getOcLogoutCmd()
-                    }
-
-                    env.logSalida = readFile('reporte.html')
-                    wrap([$class:'BuildUser']) {
-                        emailext(
-                            to: env.BUILD_USER_EMAIL,
-                            subject: "Describe Pod ${params.NOMBRE} - ${params.AMBIENTE}",
-                            body: "${env.logSalida}"
-                        )
-                    }
-                }
-            }
-        }
-
-        stage('get quota') {
-            when { expression { params.ACCION == 'get quota' } }
-            steps {
-                script {
-                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils     = new JenkinsUtils(this)
-                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
-                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-
-                    wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
-                        sh utils.getOcLoginCmd(server, env.TOKEN)
-                        utils.getQuota(namespace, params.NOMBRE, params.AMBIENTE)
-                        sh utils.getOcLogoutCmd()
-                    }
-
-                    env.logSalida = readFile('reporte.html')
-                    wrap([$class:'BuildUser']) {
-                        emailext(
-                            to: env.BUILD_USER_EMAIL,
-                            subject: "Quota ${namespace} - ${params.AMBIENTE}",
-                            body: "${env.logSalida}"
-                        )
-                    }
-                }
-            }
-        }
-
-        stage('get pods') {
-            when { expression { params.ACCION == 'get pods' } }
-            steps {
-                script {
-                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils     = new JenkinsUtils(this)
-                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
-                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-
-                    wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
-                        sh utils.getOcLoginCmd(server, env.TOKEN)
-                        utils.getPods(namespace, params.NOMBRE, params.AMBIENTE)
-                        sh utils.getOcLogoutCmd()
-                    }
-
-                    env.logSalida = readFile('reporte.html')
-                    wrap([$class:'BuildUser']) {
-                        emailext(
-                            to: env.BUILD_USER_EMAIL,
-                            subject: "Pods ${namespace} - ${params.AMBIENTE}",
-                            body: "${env.logSalida}"
-                        )
-                    }
-                }
-            }
-        }
-
-        stage('get secrets') {
-            when { expression { params.ACCION == 'get secrets' } }
-            steps {
-                script {
-                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils     = new JenkinsUtils(this)
-                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
-                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-
-                    wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
-                        sh utils.getOcLoginCmd(server, env.TOKEN)
-                        utils.extractSecret(namespace, params.NOMBRE, params.AMBIENTE)
-                        sh utils.getOcLogoutCmd()
-                    }
-
-                    env.logSalida = readFile('reporte.html')
-                    wrap([$class:'BuildUser']) {
-                        emailext(
-                            to: env.BUILD_USER_EMAIL,
-                            subject: "Secret ${params.NOMBRE} - ${params.AMBIENTE}",
-                            body: "${env.logSalida}"
-                        )
-                    }
-                }
-            }
-        }
-
-        stage('get configmaps') {
-            when { expression { params.ACCION == 'get configmaps' } }
-            steps {
-                script {
-                    def fila      = readJSON file: "fila_${params.NOMBRE}.json"
-                    def utils     = new JenkinsUtils(this)
-                    def server    = utils.getServer(params.AMBIENTE, fila.usage)
-                    def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
-
-                    wrap([$class: 'MaskPasswordsBuildWrapper',
-                          varPasswordPairs: [[var: 'TOKEN', password: fila["Token${params.AMBIENTE.capitalize()}"]]]]) {
-                        sh utils.getOcLoginCmd(server, env.TOKEN)
-                        utils.extractConfigMap(namespace, params.NOMBRE, params.AMBIENTE)
-                        sh utils.getOcLogoutCmd()
-                    }
-
-                    env.logSalida = readFile('reporte.html')
-                    wrap([$class:'BuildUser']) {
-                        emailext(
-                            to: env.BUILD_USER_EMAIL,
-                            subject: "ConfigMap ${params.NOMBRE} - ${params.AMBIENTE}",
-                            body: "${env.logSalida}"
-                        )
                     }
                 }
             }
