@@ -76,12 +76,20 @@ pipeline {
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     def sanitize = { text ->
-                        def result = text
-                        env.SENSITIVE_WORDS.split(',').each { word ->
-                            def regex = "(?i)${java.util.regex.Pattern.quote(word.trim())}"
-                            result = result.replaceAll(regex, '****')
+                        def sensitiveWords = env.SENSITIVE_WORDS.split(',')*.trim().collect { it.toLowerCase() }
+                        def lines = text.readLines()
+                        def sanitizedLines = lines.collect { line ->
+                            def matcher = line =~ /(?i)^\s*(\w+)\s*=\s*(.+)$/
+                            if (matcher.matches()) {
+                                def varName = matcher[0][1]
+                                def varValue = matcher[0][2]
+                                if (sensitiveWords.any { varName.toLowerCase().contains(it) }) {
+                                    return "${varName}=****"
+                                }
+                            }
+                            return line
                         }
-                        return result
+                        return sanitizedLines.join('\n')
                     }
 
                     wrap([$class: 'MaskPasswordsBuildWrapper',
@@ -147,6 +155,7 @@ pipeline {
         }
     }
 }
+
 
 // ======= JenkinsUtils.groovy helper =========
 
