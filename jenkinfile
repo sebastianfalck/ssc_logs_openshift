@@ -76,17 +76,35 @@ pipeline {
                     def namespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]
 
                     def sanitize = { text ->
-                        def sensitiveWords = env.SENSITIVE_WORDS.split(',')*.trim().collect { it.toLowerCase() }
-                        def lines = text.readLines()
-                        def sanitizedLines = lines.collect { line ->
-                            def matcher = line =~ /(?i)^\s*(\w+)\s*=\s*(.+)$/
-                            if (matcher.matches()) {
-                                def varName = matcher[0][1]
-                                def varValue = matcher[0][2]
-                                if (sensitiveWords.any { varName.toLowerCase().contains(it) }) {
-                                    return "${varName}=****"
+                        def sensitiveWords = env.SENSITIVE_WORDS.split(',').collect { it.trim().toLowerCase() }
+                        def sanitizedLines = text.readLines().collect { line ->
+                            // key=value
+                            def matcherEq = line =~ /^\s*([a-zA-Z0-9._-]+)\s*=\s*(.*)$/
+                            if (matcherEq.matches()) {
+                                def key = matcherEq[0][1]
+                                if (sensitiveWords.any { key.toLowerCase().contains(it) }) {
+                                    return "${key}=****"
                                 }
                             }
+
+                            // key: value
+                            def matcherColon = line =~ /^\s*([a-zA-Z0-9._-]+)\s*:\s*(.*)$/
+                            if (matcherColon.matches()) {
+                                def key = matcherColon[0][1]
+                                if (sensitiveWords.any { key.toLowerCase().contains(it) }) {
+                                    return "${key}: ****"
+                                }
+                            }
+
+                            // XML entry
+                            def matcherXml = line =~ /<entry key=["']([^"']+)["']>([^<]*)<\/entry>/
+                            if (matcherXml.matches()) {
+                                def key = matcherXml[0][1]
+                                if (sensitiveWords.any { key.toLowerCase().contains(it) }) {
+                                    return line.replaceFirst(/>([^<]*)<\/entry>/, '>****</entry>')
+                                }
+                            }
+
                             return line
                         }
                         return sanitizedLines.join('\n')
