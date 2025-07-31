@@ -15,7 +15,7 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
     with open(input_path, 'r') as f:
         lines = f.readlines()
 
-    should_sanitize = tipo.lower() in ['secrets', 'configmaps', 'env']
+    should_sanitize = tipo.lower() in ['secrets', 'configmaps', 'env'] and ambiente.lower() != 'dev'
 
     with open(html_path, 'w') as html:
         html.write(f"""<!DOCTYPE html>

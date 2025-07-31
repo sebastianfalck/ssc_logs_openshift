@@ -78,7 +78,6 @@ pipeline {
                     def sanitize = { text ->
                         def sensitiveWords = env.SENSITIVE_WORDS.split(',').collect { it.trim().toLowerCase() }
                         def sanitizedLines = text.readLines().collect { line ->
-                            // key=value
                             def matcherEq = line =~ /^\s*([a-zA-Z0-9._-]+)\s*=\s*(.*)$/
                             if (matcherEq.matches()) {
                                 def key = matcherEq[0][1]
@@ -86,8 +85,6 @@ pipeline {
                                     return "${key}=****"
                                 }
                             }
-
-                            // key: value
                             def matcherColon = line =~ /^\s*([a-zA-Z0-9._-]+)\s*:\s*(.*)$/
                             if (matcherColon.matches()) {
                                 def key = matcherColon[0][1]
@@ -95,8 +92,6 @@ pipeline {
                                     return "${key}: ****"
                                 }
                             }
-
-                            // XML entry
                             def matcherXml = line =~ /<entry key=["']([^"']+)["']>([^<]*)<\/entry>/
                             if (matcherXml.matches()) {
                                 def key = matcherXml[0][1]
@@ -104,7 +99,6 @@ pipeline {
                                     return line.replaceFirst(/>([^<]*)<\/entry>/, '>****</entry>')
                                 }
                             }
-
                             return line
                         }
                         return sanitizedLines.join('\n')
@@ -148,9 +142,13 @@ pipeline {
                                     input message: "¿Aprobar acceso a secrets de ${params.AMBIENTE} para el microservicio ${params.NOMBRE}?",
                                           ok: 'Aprobar',
                                           submitter: 'admin1,admin2'
+                                    utils.extractSecret(namespace, params.NOMBRE, params.AMBIENTE)
+                                    salida = sanitize(readFile('reporte.html'))
+                                } else {
+                                    // dev o drs no requieren aprobación ni censura
+                                    utils.extractSecret(namespace, params.NOMBRE, params.AMBIENTE)
+                                    salida = readFile('reporte.html')
                                 }
-                                utils.extractSecret(namespace, params.NOMBRE, params.AMBIENTE)
-                                salida = sanitize(readFile('reporte.html'))
                                 break
                             case 'get configmaps':
                                 utils.extractConfigMap(namespace, params.NOMBRE, params.AMBIENTE)
@@ -172,86 +170,4 @@ pipeline {
             }
         }
     }
-}
-
-
-// ======= JenkinsUtils.groovy helper =========
-
-class JenkinsUtils {
-    def steps
-    JenkinsUtils(steps) { this.steps = steps }
-
-    def getServer(ambiente, tipoAcceso) {
-        def serverMap = [
-            'drs'     : { -> steps.env.SERVER_DRS },
-            'internal': { -> steps.env.SERVER_INTERNAL },
-            'external': { -> steps.env.SERVER_EXTERNAL }
-        ]
-        if (ambiente?.toLowerCase() == 'drs') return serverMap['drs']()
-        def key = tipoAcceso?.toLowerCase()
-        return serverMap.get(key, serverMap['internal'])()
-    }
-
-    def getOcLoginCmd(server, token) {
-        return "oc login --insecure-skip-tls-verify --server=${server} --token=${token}"
-    }
-
-    def getOcLogoutCmd() {
-        return "oc logout"
-    }
-
-    def getPodName(namespace, nombre) {
-        return steps.sh(
-            script: "oc get pod -n ${namespace} | grep '${nombre}-.*' | awk '{print \$1}' | head -n1",
-            returnStdout: true
-        ).trim()
-    }
-
-    def getLogs(pod, namespace, nombre, ambiente) {
-        steps.sh "oc logs ${pod} -n ${namespace} > ${pod}.log"
-        steps.sh "python logs.py ${pod}.log ${nombre} ${ambiente} logs"
-    }
-
-    def getDeploymentName(namespace, nombre) {
-        return steps.sh(
-            script: "oc get deployment -n ${namespace} | grep '${nombre}' | awk '{print \$1}'",
-            returnStdout: true
-        ).trim()
-    }
-
-    def getDeploymentYaml(deployment, namespace, nombre, ambiente) {
-        steps.sh "oc get deployment ${deployment} -n ${namespace} -o yaml > deployment.yaml"
-        steps.sh "python logs.py deployment.yaml ${nombre} ${ambiente} deployment"
-    }
-
-    def getDescribePod(pod, namespace, nombre, ambiente) {
-        steps.sh "oc describe pod ${pod} -n ${namespace} > describe.txt"
-        steps.sh "python logs.py describe.txt ${nombre} ${ambiente} describe"
-    }
-
-    def getQuota(namespace, nombre, ambiente) {
-        steps.sh "oc get resourcequota -n ${namespace} -o yaml > quota.yaml"
-        steps.sh "python logs.py quota.yaml ${nombre} ${ambiente} quota"
-    }
-
-    def getPods(namespace, nombre, ambiente) {
-        steps.sh "oc get pods -n ${namespace} -o wide > pods.txt"
-        steps.sh "python logs.py pods.txt ${nombre} ${ambiente} pods"
-    }
-
-def extractSecret(namespace, nombre, ambiente) {
-    steps.sh """
-        oc get secret ${nombre} -n ${namespace} -o json | jq -r '.data | to_entries[] | "\\(.key)=\\(.value | @base64d)"' > secret.env
-    """
-    steps.sh "python logs.py secret.env ${nombre} ${ambiente} env"
-}
-
-def extractConfigMap(namespace, nombre, ambiente) {
-    steps.sh """
-        oc get configmap ${nombre} -n ${namespace} -o json | jq -r '.data | to_entries[] | "\\(.key)=\\(.value)"' > configmap.env
-    """
-    steps.sh "python logs.py configmap.env ${nombre} ${ambiente} env"
-}
-
-
 }
