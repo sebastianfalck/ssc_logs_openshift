@@ -11,6 +11,32 @@ def sanitize_line(line, sensitive_words):
         return f"{key}={value}"
     return line
 
+def parse_key_values(lines):
+    data = {}
+    current_section = None
+    for line in lines:
+        if not line.strip():
+            continue
+        if not line.startswith(" ") and ':' in line:
+            current_section = line.strip().replace(":", "")
+            data[current_section] = {}
+        elif current_section and ':' in line:
+            key_val = line.strip().split(":", 1)
+            key = key_val[0].strip()
+            val = key_val[1].strip()
+            data[current_section][key] = val
+    return data
+
+def render_table(data):
+    html = ""
+    for section, items in data.items():
+        html += f'<div class="section">📌 {section}</div>\n'
+        html += '<table>\n<thead><tr><th>Clave</th><th>Valor</th></tr></thead><tbody>\n'
+        for key, val in items.items():
+            html += f"<tr><td>{key}</td><td>{val}</td></tr>\n"
+        html += '</tbody></table>\n'
+    return html
+
 def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_words=None):
     with open(input_path, 'r') as f:
         lines = f.readlines()
@@ -55,7 +81,7 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
         .warning {{ color: #ff8800; }}
         .info {{ color: #006699; }}
         .normal {{ color: #333; }}
-        .section {{ margin-top: 20px; font-weight: bold; color: #00a79d; font-size: 1.1em; }}
+        .section {{ margin-top: 25px; font-size: 1.1em; font-weight: bold; color: #00a79d; }}
         .line {{ white-space: pre-wrap; margin: 2px 0; }}
         table {{
             width: 100%;
@@ -130,107 +156,14 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
                     html.write(f'<div class="section">🔑 {key}</div>\n')
                     html.write(f'<div class="line normal">{value}</div>\n')
 
-        elif tipo == 'deployment':
-            html.write('<div class="log-title">📦 Detalles del Deployment</div>\n')
-
-            metadata = {}
-            spec = {}
-            containers = []
-            current_container = {}
-            current_path = []
-
-            for line in lines:
-                raw = line.rstrip()
-                indent = len(line) - len(line.lstrip())
-                stripped = line.strip()
-
-                if not stripped or ':' not in stripped:
-                    continue
-
-                key, _, val = stripped.partition(':')
-                key, val = key.strip(), val.strip()
-
-                while len(current_path) * 2 > indent:
-                    current_path.pop()
-
-                current_path.append(key)
-                path = '/'.join(current_path)
-
-                if path.endswith('metadata/name'):
-                    metadata['name'] = val
-                elif path.endswith('metadata/namespace'):
-                    metadata['namespace'] = val
-                elif path.endswith('spec/replicas'):
-                    spec['replicas'] = val
-                elif path.endswith('containers/name'):
-                    if current_container:
-                        containers.append(current_container)
-                    current_container = {'name': val}
-                elif path.endswith('containers/image'):
-                    current_container['image'] = val
-                elif path.endswith('ports/containerPort'):
-                    current_container.setdefault('ports', []).append(val)
-                elif 'resources/limits' in path:
-                    current_container.setdefault('limits', {})[key] = val
-                elif 'resources/requests' in path:
-                    current_container.setdefault('requests', {})[key] = val
-
-            if current_container:
-                containers.append(current_container)
-
-            html.write(f'<div class="section">🧾 Información General</div>\n')
-            html.write('<table><tr><th>Campo</th><th>Valor</th></tr>\n')
-            for k, v in metadata.items():
-                html.write(f'<tr><td>{k.capitalize()}</td><td>{v}</td></tr>\n')
-            for k, v in spec.items():
-                html.write(f'<tr><td>{k.capitalize()}</td><td>{v}</td></tr>\n')
-            html.write('</table>\n')
-
-            for c in containers:
-                html.write(f'<div class="section">📦 Contenedor: <strong>{c.get("name", "")}</strong></div>\n')
-                html.write('<table><tr><th>Propiedad</th><th>Valor</th></tr>\n')
-                html.write(f'<tr><td>Imagen</td><td>{c.get("image", "")}</td></tr>\n')
-
-                if 'ports' in c:
-                    html.write(f'<tr><td>Puertos</td><td>{", ".join(c["ports"])}</td></tr>\n')
-
-                if 'limits' in c:
-                    limits = ', '.join(f'{k}: {v}' for k, v in c["limits"].items())
-                    html.write(f'<tr><td>Límites</td><td>{limits}</td></tr>\n')
-
-                if 'requests' in c:
-                    reqs = ', '.join(f'{k}: {v}' for k, v in c["requests"].items())
-                    html.write(f'<tr><td>Requests</td><td>{reqs}</td></tr>\n')
-
-                html.write('</table>\n')
-
-        elif tipo == 'quota':
-            html.write('<div class="log-title">📊 Detalles de Quotas</div>')
-            current_section = ""
-            data_section = {}
-
-            for line in lines:
-                esc = line.rstrip()
-                if not esc.strip():
-                    continue
-
-                if re.match(r'^\s*\w+:$', esc):
-                    current_section = esc.strip().replace(':', '')
-                    data_section[current_section] = []
-                    continue
-
-                if re.match(r'^\s{2,}\w', line):
-                    key_val = esc.strip().split(':', 1)
-                    if len(key_val) == 2 and current_section:
-                        key, val = key_val
-                        data_section[current_section].append((key.strip(), val.strip()))
-
-            for section, rows in data_section.items():
-                html.write(f'<div class="section">📂 {section.capitalize()}</div>\n')
-                html.write('<table>\n<thead><tr><th>Recurso</th><th>Valor</th></tr></thead><tbody>\n')
-                for key, val in rows:
-                    html.write(f'<tr><td>{key}</td><td>{val}</td></tr>\n')
-                html.write('</tbody></table>\n')
+        elif tipo in ['deployment', 'quota']:
+            label = {
+                'deployment': '📦 Despliegue (Deployment)',
+                'quota': '📊 Cuotas de Recursos',
+            }[tipo]
+            html.write(f'<div class="log-title">{label}</div>\n')
+            data = parse_key_values(lines)
+            html.write(render_table(data))
 
         elif tipo == 'pods':
             html.write('<div class="log-title">🧩 Lista de Pods</div>')
@@ -263,8 +196,6 @@ if __name__ == '__main__':
         sys.exit(1)
 
     _, input_path, microservice, ambiente, tipo = sys.argv
-
     sensitive_env = os.getenv("SENSITIVE_WORDS", "")
     sensitive_words = [word.strip() for word in sensitive_env.split(",") if word.strip()]
-
     log_to_html(input_path, 'reporte.html', microservice, ambiente, tipo, sensitive_words)
