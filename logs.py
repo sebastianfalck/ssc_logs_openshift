@@ -60,7 +60,7 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin-top: 15px;
+            margin-top: 10px;
         }}
         th, td {{
             border: 1px solid #ddd;
@@ -130,17 +130,56 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
                     html.write(f'<div class="section">🔑 {key}</div>\n')
                     html.write(f'<div class="line normal">{value}</div>\n')
 
-        elif tipo in ['deployment', 'quota']:
-            label = {
-                'deployment': '📦 Despliegue YAML',
-                'quota': '📊 Cuotas de Recursos',
-            }[tipo]
-            html.write(f'<div class="log-title">{label}</div>')
-            yaml_block = "".join(lines)
-            if sensitive_words and should_sanitize:
-                yaml_block = sanitize_line(yaml_block, sensitive_words)
-            esc = yaml_block.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            html.write(f'<div class="yaml">{esc}</div>\n')
+        elif tipo == 'deployment':
+            html.write('<div class="log-title">📦 Detalles del Deployment</div>\n')
+            current_section = ""
+            for line in lines:
+                esc = line.strip()
+                if not esc:
+                    continue
+                if re.match(r'^\S', line):  # Línea sin indentación (nivel raíz)
+                    if current_section:
+                        html.write('</div>\n')  # Cierra sección anterior
+                    current_section = esc.split(':')[0]
+                    html.write(f'<div class="section">📘 {esc}</div>\n')
+                elif re.match(r'^\s{2,}\w+:', line):  # clave: valor
+                    key_val = esc.split(":", 1)
+                    if len(key_val) == 2:
+                        key, value = key_val
+                        html.write(f'<div class="line"><strong>{key.strip()}:</strong> {value.strip()}</div>\n')
+                    else:
+                        html.write(f'<div class="line">{esc}</div>\n')
+                else:
+                    html.write(f'<div class="line">{esc}</div>\n')
+            html.write('</div>\n')
+
+        elif tipo == 'quota':
+            html.write('<div class="log-title">📊 Detalles de Quotas</div>')
+            current_section = ""
+            data_section = {}
+
+            for line in lines:
+                esc = line.rstrip()
+                if not esc.strip():
+                    continue
+
+                if re.match(r'^\s*\w+:$', esc):  # Sección (hard:, used:, etc)
+                    current_section = esc.strip().replace(':', '')
+                    data_section[current_section] = []
+                    continue
+
+                if re.match(r'^\s{2,}\w', line):
+                    key_val = esc.strip().split(':', 1)
+                    if len(key_val) == 2 and current_section:
+                        key, val = key_val
+                        data_section[current_section].append((key.strip(), val.strip()))
+
+            for section, rows in data_section.items():
+                html.write(f'<div class="section">📂 {section.capitalize()}</div>\n')
+                html.write('<table>\n<thead><tr><th>Recurso</th><th>Valor</th></tr></thead><tbody>\n')
+                for key, val in rows:
+                    html.write(f'<tr><td>{key}</td><td>{val}</td></tr>\n')
+                html.write('</tbody></table>\n')
 
         elif tipo == 'pods':
             html.write('<div class="log-title">🧩 Lista de Pods</div>')
@@ -174,7 +213,6 @@ if __name__ == '__main__':
 
     _, input_path, microservice, ambiente, tipo = sys.argv
 
-    # Carga desde env var 'SENSITIVE_WORDS=password,username,apiKey'
     sensitive_env = os.getenv("SENSITIVE_WORDS", "")
     sensitive_words = [word.strip() for word in sensitive_env.split(",") if word.strip()]
 
