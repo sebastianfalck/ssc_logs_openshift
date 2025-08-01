@@ -55,7 +55,7 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
         .warning {{ color: #ff8800; }}
         .info {{ color: #006699; }}
         .normal {{ color: #333; }}
-        .section {{ margin-top: 15px; font-weight: bold; color: #00a79d; }}
+        .section {{ margin-top: 20px; font-weight: bold; color: #00a79d; font-size: 1.1em; }}
         .line {{ white-space: pre-wrap; margin: 2px 0; }}
         table {{
             width: 100%;
@@ -132,26 +132,77 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
 
         elif tipo == 'deployment':
             html.write('<div class="log-title">📦 Detalles del Deployment</div>\n')
-            current_section = ""
+
+            metadata = {}
+            spec = {}
+            containers = []
+            current_container = {}
+            current_path = []
+
             for line in lines:
-                esc = line.strip()
-                if not esc:
+                raw = line.rstrip()
+                indent = len(line) - len(line.lstrip())
+                stripped = line.strip()
+
+                if not stripped or ':' not in stripped:
                     continue
-                if re.match(r'^\S', line):  # Línea sin indentación (nivel raíz)
-                    if current_section:
-                        html.write('</div>\n')  # Cierra sección anterior
-                    current_section = esc.split(':')[0]
-                    html.write(f'<div class="section">📘 {esc}</div>\n')
-                elif re.match(r'^\s{2,}\w+:', line):  # clave: valor
-                    key_val = esc.split(":", 1)
-                    if len(key_val) == 2:
-                        key, value = key_val
-                        html.write(f'<div class="line"><strong>{key.strip()}:</strong> {value.strip()}</div>\n')
-                    else:
-                        html.write(f'<div class="line">{esc}</div>\n')
-                else:
-                    html.write(f'<div class="line">{esc}</div>\n')
-            html.write('</div>\n')
+
+                key, _, val = stripped.partition(':')
+                key, val = key.strip(), val.strip()
+
+                while len(current_path) * 2 > indent:
+                    current_path.pop()
+
+                current_path.append(key)
+                path = '/'.join(current_path)
+
+                if path.endswith('metadata/name'):
+                    metadata['name'] = val
+                elif path.endswith('metadata/namespace'):
+                    metadata['namespace'] = val
+                elif path.endswith('spec/replicas'):
+                    spec['replicas'] = val
+                elif path.endswith('containers/name'):
+                    if current_container:
+                        containers.append(current_container)
+                    current_container = {'name': val}
+                elif path.endswith('containers/image'):
+                    current_container['image'] = val
+                elif path.endswith('ports/containerPort'):
+                    current_container.setdefault('ports', []).append(val)
+                elif 'resources/limits' in path:
+                    current_container.setdefault('limits', {})[key] = val
+                elif 'resources/requests' in path:
+                    current_container.setdefault('requests', {})[key] = val
+
+            if current_container:
+                containers.append(current_container)
+
+            html.write(f'<div class="section">🧾 Información General</div>\n')
+            html.write('<table><tr><th>Campo</th><th>Valor</th></tr>\n')
+            for k, v in metadata.items():
+                html.write(f'<tr><td>{k.capitalize()}</td><td>{v}</td></tr>\n')
+            for k, v in spec.items():
+                html.write(f'<tr><td>{k.capitalize()}</td><td>{v}</td></tr>\n')
+            html.write('</table>\n')
+
+            for c in containers:
+                html.write(f'<div class="section">📦 Contenedor: <strong>{c.get("name", "")}</strong></div>\n')
+                html.write('<table><tr><th>Propiedad</th><th>Valor</th></tr>\n')
+                html.write(f'<tr><td>Imagen</td><td>{c.get("image", "")}</td></tr>\n')
+
+                if 'ports' in c:
+                    html.write(f'<tr><td>Puertos</td><td>{", ".join(c["ports"])}</td></tr>\n')
+
+                if 'limits' in c:
+                    limits = ', '.join(f'{k}: {v}' for k, v in c["limits"].items())
+                    html.write(f'<tr><td>Límites</td><td>{limits}</td></tr>\n')
+
+                if 'requests' in c:
+                    reqs = ', '.join(f'{k}: {v}' for k, v in c["requests"].items())
+                    html.write(f'<tr><td>Requests</td><td>{reqs}</td></tr>\n')
+
+                html.write('</table>\n')
 
         elif tipo == 'quota':
             html.write('<div class="log-title">📊 Detalles de Quotas</div>')
@@ -163,7 +214,7 @@ def log_to_html(input_path, html_path, microservice, ambiente, tipo, sensitive_w
                 if not esc.strip():
                     continue
 
-                if re.match(r'^\s*\w+:$', esc):  # Sección (hard:, used:, etc)
+                if re.match(r'^\s*\w+:$', esc):
                     current_section = esc.strip().replace(':', '')
                     data_section[current_section] = []
                     continue
