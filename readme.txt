@@ -1,3 +1,4 @@
+<!-- HTML para documentación Confluence -->
 <h1>📘 Guía de uso del Pipeline Jenkins para Autosoporte de Microservicios</h1>
 
 <p>Este pipeline permite a los desarrolladores ejecutar acciones de diagnóstico y revisión sobre microservicios desplegados en OpenShift, de manera controlada, segura y autogestionada.</p>
@@ -11,7 +12,8 @@
   <li>Describir el pod activo.</li>
   <li>Ver recursos consumidos y cuotas del namespace.</li>
   <li>Listar pods.</li>
-  <li>Obtener secrets y configmaps del microservicio.</li>
+  <li>Obtener secretos y configmaps del microservicio.</li>
+  <li>Reiniciar el pod y observar su comportamiento post-reinicio.</li>
   <li>Validar acceso por país.</li>
   <li>Proteger automáticamente información sensible.</li>
   <li>Enviar por correo los resultados al ejecutor.</li>
@@ -22,7 +24,7 @@
   <tr><th>Parámetro</th><th>Tipo</th><th>Opciones</th><th>Descripción</th></tr>
   <tr><td><b>NOMBRE</b></td><td>string</td><td>-</td><td>Nombre exacto del microservicio según el archivo CSV.</td></tr>
   <tr><td><b>AMBIENTE</b></td><td>choice</td><td>dev, uat, prd, drs</td><td>Ambiente sobre el cual se ejecuta la acción.</td></tr>
-  <tr><td><b>ACCION</b></td><td>choice</td><td>none, get logs, get deployment, describe pod, get quota, get pods, get secrets, get configmaps</td>
+  <tr><td><b>ACCION</b></td><td>choice</td><td>none, get logs, get deployment, describe pod, get quota, get pods, get secrets, get configmaps, restart pod</td>
     <td>Acción a ejecutar. Si es <i>none</i>, no se realiza ninguna operación.</td></tr>
 </table>
 
@@ -91,6 +93,10 @@
   <tr>
     <td><b>get configmaps</b></td><td>No</td><td>Sí</td>
     <td>Extrae configuración externa. Muestra propiedades (application.yml, etc). Aplica censura automática a valores sensibles.</td>
+  </tr>
+  <tr>
+    <td><b>restart pod</b></td><td>No</td><td>No</td>
+    <td>Elimina el pod principal del microservicio, espera 20 segundos, muestra el estado de los pods y luego los logs del nuevo pod. Útil para desbloquear microservicios congelados o trabados.</td>
   </tr>
 </table>
 
