@@ -1,147 +1,147 @@
-<!-- HTML para documentación Confluence -->
-<h1>📘 Guía de uso del Pipeline Jenkins para Autosoporte de Microservicios</h1>
+<!-- HTML for Confluence Documentation -->
+<h1>📘 Jenkins Pipeline Self-Service Guide for Microservices</h1>
 
-<p>Este pipeline permite a los desarrolladores ejecutar acciones de diagnóstico y revisión sobre microservicios desplegados en OpenShift, de manera controlada, segura y autogestionada.</p>
+<p>This pipeline allows developers to perform diagnostic and review actions on microservices deployed in OpenShift, in a controlled, secure, and self-managed way.</p>
 
 <hr/>
 
-<h2>✅ ¿Qué permite hacer este pipeline?</h2>
+<h2>✅ What can this pipeline do?</h2>
 <ul>
-  <li>Obtener logs del pod principal del microservicio.</li>
-  <li>Consultar la configuración actual (Deployment YAML).</li>
-  <li>Describir el pod activo.</li>
-  <li>Ver recursos consumidos y cuotas del namespace.</li>
-  <li>Listar pods.</li>
-  <li>Obtener secretos y configmaps del microservicio.</li>
-  <li>Reiniciar el pod y observar su comportamiento post-reinicio.</li>
-  <li>Validar acceso por país.</li>
-  <li>Proteger automáticamente información sensible.</li>
-  <li>Enviar por correo los resultados al ejecutor.</li>
+  <li>Retrieve logs from the main microservice pod.</li>
+  <li>Query the current configuration (Deployment YAML).</li>
+  <li>Describe the active pod.</li>
+  <li>View consumed resources and namespace quotas.</li>
+  <li>List all pods in the namespace.</li>
+  <li>Retrieve secrets and configmaps of the microservice.</li>
+  <li>Restart the pod and monitor its behavior after restart.</li>
+  <li>Validate country-based access.</li>
+  <li>Automatically mask sensitive information.</li>
+  <li>Send the results via email to the executor.</li>
 </ul>
 
-<h2>🔧 Parámetros del pipeline</h2>
+<h2>🔧 Pipeline Parameters</h2>
 <table>
-  <tr><th>Parámetro</th><th>Tipo</th><th>Opciones</th><th>Descripción</th></tr>
-  <tr><td><b>NOMBRE</b></td><td>string</td><td>-</td><td>Nombre exacto del microservicio según el archivo CSV.</td></tr>
-  <tr><td><b>AMBIENTE</b></td><td>choice</td><td>dev, uat, prd, drs</td><td>Ambiente sobre el cual se ejecuta la acción.</td></tr>
+  <tr><th>Parameter</th><th>Type</th><th>Options</th><th>Description</th></tr>
+  <tr><td><b>NOMBRE</b></td><td>string</td><td>-</td><td>Exact microservice name as listed in the CSV file.</td></tr>
+  <tr><td><b>AMBIENTE</b></td><td>choice</td><td>dev, uat, prd, drs</td><td>Target environment for the selected action.</td></tr>
   <tr><td><b>ACCION</b></td><td>choice</td><td>none, get logs, get deployment, describe pod, get quota, get pods, get secrets, get configmaps, restart pod</td>
-    <td>Acción a ejecutar. Si es <i>none</i>, no se realiza ninguna operación.</td></tr>
+    <td>Action to perform. If <i>none</i>, no operation is executed.</td></tr>
 </table>
 
-<h2>🌍 Variables de entorno internas</h2>
+<h2>🌍 Internal Environment Variables</h2>
 <table>
-  <tr><th>Variable</th><th>Descripción</th></tr>
-  <tr><td><b>REPO_URL</b></td><td>URL del repositorio Git del archivo CSV.</td></tr>
-  <tr><td><b>REPO_CREDENTIALS</b></td><td>Credencial Jenkins para autenticación al repo.</td></tr>
-  <tr><td><b>SERVER_INTERNAL</b></td><td>URL del OpenShift interno (dev/uat).</td></tr>
-  <tr><td><b>SERVER_EXTERNAL</b></td><td>URL del OpenShift externo (prd).</td></tr>
-  <tr><td><b>SERVER_DRS</b></td><td>URL del clúster DRS (contingencia).</td></tr>
-  <tr><td><b>SENSITIVE_WORDS</b></td><td>Palabras clave que activan censura: password, token, secret, etc.</td></tr>
+  <tr><th>Variable</th><th>Description</th></tr>
+  <tr><td><b>REPO_URL</b></td><td>Git repository URL for the CSV file.</td></tr>
+  <tr><td><b>REPO_CREDENTIALS</b></td><td>Jenkins credential ID used for Git authentication.</td></tr>
+  <tr><td><b>SERVER_INTERNAL</b></td><td>OpenShift internal cluster URL (dev/uat).</td></tr>
+  <tr><td><b>SERVER_EXTERNAL</b></td><td>External OpenShift cluster URL (prd).</td></tr>
+  <tr><td><b>SERVER_DRS</b></td><td>Disaster Recovery Site (DRS) cluster URL.</td></tr>
+  <tr><td><b>SENSITIVE_WORDS</b></td><td>Keywords that trigger masking: password, token, secret, etc.</td></tr>
 </table>
 
-<h2>🔄 Flujo general del pipeline</h2>
+<h2>🔄 Pipeline Flow</h2>
 <ol>
-  <li>Clona el repositorio con el archivo CSV.</li>
-  <li>Lee y selecciona la configuración del microservicio (NOMBRE).</li>
-  <li>Verifica el país del ejecutor vs el del microservicio.</li>
-  <li>Realiza <code>oc login</code> al clúster correcto con el token adecuado.</li>
-  <li>Ejecuta la acción seleccionada.</li>
-  <li>Censura la información sensible si aplica.</li>
-  <li>Envía el reporte por correo al usuario ejecutor.</li>
+  <li>Clones the Git repository containing the CSV file.</li>
+  <li>Reads and selects the microservice configuration based on <code>NOMBRE</code>.</li>
+  <li>Validates country of executor against microservice's country.</li>
+  <li>Performs <code>oc login</code> to the appropriate OpenShift cluster using the correct token.</li>
+  <li>Executes the selected action.</li>
+  <li>Masks sensitive data, if applicable.</li>
+  <li>Sends an email report to the executing user.</li>
 </ol>
 
-<h2>🔐 Control de acceso por país</h2>
-<p>El pipeline valida que el microservicio pertenezca al país del usuario que lo ejecuta, comparando:</p>
+<h2>🔐 Country-Based Access Control</h2>
+<p>The pipeline checks that the microservice belongs to the same country as the executor by comparing:</p>
 <ul>
-  <li>El campo <b>country</b> del CSV.</li>
-  <li>La carpeta en la ruta del workspace Jenkins (ejemplo: <code>/colombia/proyecto/</code>).</li>
+  <li>The <b>country</b> field from the CSV.</li>
+  <li>The folder in the Jenkins workspace path (e.g., <code>/colombia/project/</code>).</li>
 </ul>
-<p>Si no coinciden, el pipeline se detiene con error.</p>
+<p>If they do not match, the pipeline stops with an error.</p>
 
-<h2>⚙️ Acciones disponibles</h2>
+<h2>⚙️ Available Actions</h2>
 <table>
   <tr>
-    <th>Acción</th>
-    <th>¿Requiere aprobación?</th>
-    <th>¿Censura datos?</th>
-    <th>Descripción</th>
+    <th>Action</th>
+    <th>Approval Required?</th>
+    <th>Data Masking?</th>
+    <th>Description</th>
   </tr>
   <tr>
     <td><b>get logs</b></td><td>No</td><td>No</td>
-    <td>Extrae los logs del pod principal. Muestra errores de arranque, fallos funcionales, errores de conexión, trazas, etc.</td>
+    <td>Retrieves logs from the main pod. Useful to inspect startup issues, stack traces, connection failures, etc.</td>
   </tr>
   <tr>
     <td><b>get deployment</b></td><td>No</td><td>No</td>
-    <td>Devuelve el YAML completo del Deployment. Muestra imagen, variables, probes, recursos, volúmenes, estrategia de despliegue.</td>
+    <td>Returns the full Deployment YAML, including image, variables, probes, resources, volumes, deployment strategy.</td>
   </tr>
   <tr>
     <td><b>describe pod</b></td><td>No</td><td>No</td>
-    <td>Resultado de <code>oc describe pod</code>. Muestra eventos, reinicios, estado de probes, puertos, volúmenes y nodo.</td>
+    <td>Equivalent to <code>oc describe pod</code>. Shows events, restarts, probe status, volumes, ports, assigned node, etc.</td>
   </tr>
   <tr>
     <td><b>get quota</b></td><td>No</td><td>No</td>
-    <td>Muestra límites y uso de recursos (CPU, memoria, objetos). Útil para detectar bloqueos por cuotas.</td>
+    <td>Displays namespace resource usage and limits (CPU, memory, object counts). Helps identify quota-based blocks.</td>
   </tr>
   <tr>
     <td><b>get pods</b></td><td>No</td><td>No</td>
-    <td>Lista los pods del namespace. Indica estado, IP, reinicios, tiempo de vida, imágenes usadas, etc.</td>
+    <td>Lists pods in the namespace. Includes status, restarts, IPs, age, container images, etc.</td>
   </tr>
   <tr>
-    <td><b>get secrets</b></td><td>Sí (qa/prd)</td><td>Sí (qa/prd)</td>
-    <td>Extrae secretos (passwords, tokens, certificados, etc.). Requiere aprobación en ambientes críticos y aplica censura automática.</td>
+    <td><b>get secrets</b></td><td>Yes (qa/prd)</td><td>Yes (qa/prd)</td>
+    <td>Retrieves secrets (passwords, tokens, certs). Requires approval in critical environments. Output is masked automatically.</td>
   </tr>
   <tr>
-    <td><b>get configmaps</b></td><td>No</td><td>Sí</td>
-    <td>Extrae configuración externa. Muestra propiedades (application.yml, etc). Aplica censura automática a valores sensibles.</td>
+    <td><b>get configmaps</b></td><td>No</td><td>Yes</td>
+    <td>Retrieves config files (e.g., application.yml). Sensitive values are automatically masked.</td>
   </tr>
   <tr>
     <td><b>restart pod</b></td><td>No</td><td>No</td>
-    <td>Elimina el pod principal del microservicio, espera 20 segundos, muestra el estado de los pods y luego los logs del nuevo pod. Útil para desbloquear microservicios congelados o trabados.</td>
+    <td>Deletes the main pod, waits 20 seconds, shows pod status with <code>oc get pods</code>, then retrieves logs of the new pod. Useful for recovering stuck or frozen services.</td>
   </tr>
 </table>
 
-<h2>🧼 Censura de datos sensibles</h2>
-<p>La salida es sanitizada automáticamente si contiene claves con las palabras definidas en <b>SENSITIVE_WORDS</b>.</p>
-<p>Soporta los siguientes formatos:</p>
+<h2>🧼 Sensitive Data Masking</h2>
+<p>Output is automatically sanitized when containing keys that match the <b>SENSITIVE_WORDS</b> list.</p>
+<p>Supported formats:</p>
 <ul>
-  <li><code>clave=valor</code></li>
-  <li><code>clave: valor</code></li>
-  <li><code>&lt;entry key="clave"&gt;valor&lt;/entry&gt;</code></li>
+  <li><code>key=value</code></li>
+  <li><code>key: value</code></li>
+  <li><code>&lt;entry key="key"&gt;value&lt;/entry&gt;</code></li>
 </ul>
-<p><b>Ejemplos:</b></p>
+<p><b>Examples:</b></p>
 <table>
-  <tr><th>Original</th><th>Censurado</th></tr>
+  <tr><th>Original</th><th>Masked</th></tr>
   <tr><td>password=MyPass</td><td>password=****</td></tr>
   <tr><td>token: abc123</td><td>token: ****</td></tr>
   <tr><td>&lt;entry key="secret"&gt;1234&lt;/entry&gt;</td><td>&lt;entry key="secret"&gt;****&lt;/entry&gt;</td></tr>
 </table>
 
-<h2>📧 Correo con resultado</h2>
+<h2>📧 Email Report</h2>
 <ul>
-  <li>El resultado se guarda como <code>reporte.html</code>.</li>
-  <li>Se envía automáticamente al usuario que ejecutó el pipeline.</li>
-  <li>El asunto del correo es: <code>{ACCION} {NOMBRE} - {AMBIENTE}</code></li>
+  <li>Result is saved as <code>reporte.html</code>.</li>
+  <li>Automatically sent to the user who triggered the pipeline.</li>
+  <li>Email subject: <code>{ACCION} {NOMBRE} - {AMBIENTE}</code></li>
 </ul>
 
-<h2>📁 Estructura del archivo CSV</h2>
-<p>El archivo <code>ProjectsJenkinsCardifCSV.csv</code> debe tener el siguiente formato (separado por punto y coma):</p>
+<h2>📁 CSV File Structure</h2>
+<p>The file <code>ProjectsJenkinsCardifCSV.csv</code> should follow this format (semicolon-separated):</p>
 <pre>
 appName;country;usage;NameSpaceDev;TokenDev;NameSpaceUat;TokenUat;NameSpacePrd;TokenPrd
 cliente-ms;colombia;internal;ns-cliente-dev;token123;ns-cliente-uat;token456;ns-cliente-prd;token789
 </pre>
 
-<h2>🧠 Notas importantes</h2>
+<h2>🧠 Important Notes</h2>
 <ul>
-  <li>El microservicio debe existir en el CSV.</li>
-  <li>La validación por país es obligatoria.</li>
-  <li><code>get secrets</code> en <code>qa</code> y <code>prd</code> requiere autorización.</li>
-  <li>La censura se aplica a <code>secrets</code> y <code>configmaps</code> cuando corresponde.</li>
-  <li><code>REPO_URL</code> debe estar definido en la configuración del proyecto/carpeta Jenkins.</li>
+  <li>The microservice must be listed in the CSV file.</li>
+  <li>Country validation is mandatory.</li>
+  <li><code>get secrets</code> in <code>qa</code> and <code>prd</code> requires manual approval.</li>
+  <li>Masking applies to <code>secrets</code> and <code>configmaps</code> where appropriate.</li>
+  <li><code>REPO_URL</code> must be configured in the Jenkins folder/project.</li>
 </ul>
 
-<h2>📎 Recursos relacionados</h2>
+<h2>📎 Related Resources</h2>
 <ul>
-  <li><a href="https://docs.openshift.com/container-platform/latest/cli_reference/openshift_cli/developer-cli-commands.html">Documentación oc CLI</a></li>
-  <li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/">Guía ConfigMaps Kubernetes</a></li>
-  <li><a href="https://www.jenkins.io/doc/book/security/">Seguridad en Jenkins</a></li>
+  <li><a href="https://docs.openshift.com/container-platform/latest/cli_reference/openshift_cli/developer-cli-commands.html">OpenShift CLI documentation</a></li>
+  <li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/">Kubernetes ConfigMap Guide</a></li>
+  <li><a href="https://www.jenkins.io/doc/book/security/">Jenkins Security Guide</a></li>
 </ul>
