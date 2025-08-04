@@ -58,6 +58,31 @@
 </ul>
 <p>If they do not match, the pipeline stops with an error.</p>
 
+
+<h2>📝 Formato de Variables</h2>
+<p>Cuando ingreses valores para <code>configmap</code> o <code>secret</code>, asegúrate de seguir este formato:</p>
+
+<pre>
+NOMBRE_VARIABLE=valor
+</pre>
+
+<p><b>Reglas:</b></p>
+<ul>
+  <li>Cada línea debe contener una sola asignación <code>variable=valor</code>.</li>
+  <li>No uses comillas ni espacios alrededor del signo <code>=</code>.</li>
+  <li>Si el valor contiene espacios, asegúrate de que esté codificado o escapado apropiadamente.</li>
+  <li>Ejemplo válido:</li>
+</ul>
+
+<pre>
+DB_USER=admin
+DB_PASSWORD=Secreto123
+API_URL=https://api.ejemplo.com
+</pre>
+
+<p>Este archivo será procesado por el pipeline y convertido automáticamente en un <code>configmap</code> o <code>secret</code>, según corresponda.</p>
+
+
 <h2>⚙️ Available Actions</h2>
 <table>
   <tr>
