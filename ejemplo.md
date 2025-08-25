@@ -1,6 +1,6 @@
 ```mermaid
 flowchart LR
-    A([Inicio]) --> B[Entrada de datos]
+    A([Inicio]) --> B[Entrada de datos script:]
     B --> C{¿Condición?}
     C -- Sí --> D[Acción 1]
     C -- No --> E[Acción 2]
