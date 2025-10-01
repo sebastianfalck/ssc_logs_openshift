@@ -13,12 +13,30 @@ pipeline {
     parameters {
         string(name: 'NOMBRE',    defaultValue: '',                   description: 'Nombre del microservicio')
         choice(name: 'AMBIENTE',  choices: ['dev','uat','prd','drs'], description: 'Ambiente')
+        string(name: 'NAMESPACE', defaultValue: '', description: 'Namespace exacto donde se aplicarán los recursos (debe coincidir con el CSV para el ambiente seleccionado)')
         choice(name: 'ACCION',
                choices: ['none','get logs','get deployment','describe pod','get quota','get pods','get secrets','get configmaps'],
                description: 'Comando a ejecutar')
     }
 
     stages {
+        stage('Validar ambiente permitido según rama') {
+            steps {
+                script {
+                    def branchName = env.GIT_BRANCH?.replaceFirst(/^origin\//, '') ?: env.BRANCH_NAME ?: 'dev'
+                    def ambientesPorRama = [
+                        'dev' : ['dev', 'uat'],
+                        'main': ['dev', 'uat', 'prd', 'drs']
+                    ]
+                    def permitidos = ambientesPorRama[branchName] ?: ['dev', 'uat']
+                    if (!permitidos.contains(params.AMBIENTE)) {
+                        error "El ambiente '${params.AMBIENTE}' no está permitido en la rama '${branchName}'. Ambientes válidos: ${permitidos.join(', ')}"
+                    }
+                    echo "Ambiente '${params.AMBIENTE}' es válido para la rama '${branchName}'"
+                }
+            }
+        }
+
         stage('Checkout Project') {
             steps {
                 dir('project') {
@@ -46,6 +64,25 @@ pipeline {
                         .find { it.appName == params.NOMBRE }
                     writeFile file: "fila_${params.NOMBRE}.json",
                               text: groovy.json.JsonOutput.toJson(fila)
+                }
+            }
+        }
+
+        stage('Validar NAMESPACE ingresado') {
+            steps {
+                script {
+                    def fila = readJSON file: "fila_${params.NOMBRE}.json"
+                    def expectedNamespace = fila["NameSpace${params.AMBIENTE.capitalize()}"]?.trim()
+                    def provided = params.NAMESPACE?.trim()
+                    echo "Namespace esperado desde CSV para ambiente ${params.AMBIENTE}: ${expectedNamespace}"
+                    echo "Namespace proporcionado por el desarrollador: ${provided}"
+                    if (!provided) {
+                        error "Parámetro NAMESPACE no fue provisto. Debe indicar el namespace donde se aplicarán los recursos."
+                    }
+                    if (expectedNamespace != provided) {
+                        error "El NAMESPACE proporcionado ('${provided}') no coincide exactamente con el namespace configurado en el CSV ('${expectedNamespace}') para el ambiente ${params.AMBIENTE}."
+                    }
+                    echo "NAMESPACE validado correctamente."
                 }
             }
         }
